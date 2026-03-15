@@ -28,8 +28,11 @@ The core question it answers: *"Did the user navigate to what we predicted? Was 
 |---|---|---|
 | What to measure | Prediction value (not engine overhead) | Engine overhead is covered by Chrome DevTools. Prediction value is novel and unsolved. |
 | Audience | Library consumers (developers using foresee) | The strongest thing foresee can do is prove its own value to adopters. |
-| Shipping format | `foresee/devtools` entrypoint | Matches existing `foresee/core`, `foresee/react` pattern. Tree-shakeable, opt-in. |
+| Shipping format | `foresee/devtools` + `foresee/devtools/react` entrypoints | Profiler backend is React-free. Interactive panel ships separately. Both match existing entrypoint pattern. |
+| React DevTools panel | TanStack-style `<ForeseeDevtools />` component | Interactive panel for dev mode — scoreboard, live events, inspector, flow viewer. Ships as separate entrypoint, tree-shaken out when not imported. |
 | Event system | Typed emitter mixin on TrajectoryEngine | Zero cost when unused. Same pattern as existing `subscribe()`. |
+| Click correlation | `resolveIdFromEventTarget()` via WeakMap + DOM ancestor walk | Maps click targets back to registered elementIds without exposing internal maps or requiring data attributes. |
+| Navigation correlation | History API instrumentation + PendingNavigationRecord + sessionStorage | SPA: wrap pushState/replaceState + popstate. MPA: persist pending navigations, match on next page load. |
 | Confirmation strategy | Click correlation (auto) + navigation observation (auto) + manual annotation (escape hatch) | Layered: covers most cases automatically, escape hatch for SPAs. |
 | Cross-nav persistence | sessionStorage ring buffer | Survives navigations, tab-scoped, 5MB limit is plenty for event logs. |
 | Flow detection | Automatic grouping of consecutive confirmed predictions | No consumer config needed. Breaks on unconfirmed navigations. |
@@ -366,22 +369,147 @@ src/
     metrics.ts               # Precision, recall, lead time, flow computation
     types.ts                 # ProfilerReport, FlowReport, ProfilerOptions, etc.
     index.ts                 # Public exports
+    react/
+      ForeseeDevtools.tsx    # Public panel component (TanStack-style)
+      DevtoolsPanel.tsx      # Docked panel with tabs (scoreboard, events, flows)
+      DevtoolsToggle.tsx     # Fixed-position FAB to open/close
+      DevtoolsOverlay.tsx    # Element highlight overlay
+      index.ts               # Public exports
 ```
 
-New entrypoint in `package.json`:
+New entrypoints in `package.json`:
 ```json
 {
   "./devtools": {
     "types": "./dist/devtools.d.ts",
     "import": "./dist/devtools.js",
     "require": "./dist/devtools.cjs"
+  },
+  "./devtools/react": {
+    "types": "./dist/devtools-react.d.ts",
+    "import": "./dist/devtools-react.js",
+    "require": "./dist/devtools-react.cjs"
   }
 }
 ```
 
-New entry in `tsup.config.ts`:
+New entries in `tsup.config.ts`:
 ```typescript
-entry: ['src/index.ts', 'src/core/index.ts', 'src/react/index.ts', 'src/devtools/index.ts']
+entry: ['src/index.ts', 'src/core/index.ts', 'src/react/index.ts', 'src/devtools/index.ts', 'src/devtools/react/index.ts']
+```
+
+## React DevTools Panel (`<ForeseeDevtools />`)
+
+Inspired by TanStack Query DevTools. Ships as `foresee/devtools/react` — a separate entrypoint that depends on React (peer dep). The profiler backend (`foresee/devtools`) remains React-free.
+
+### Mount Pattern
+
+```tsx
+import { ForeseeDevtools } from 'foresee/devtools/react'
+
+function App() {
+  return (
+    <>
+      <MyApp />
+      {import.meta.env.DEV && <ForeseeDevtools profiler={profiler} />}
+    </>
+  )
+}
+```
+
+Dev-only by conditional rendering. Because `foresee/devtools/react` is a separate entrypoint, production bundles that never import it won't include it. No magic no-op needed.
+
+### What It Shows
+
+- **Scoreboard**: predictions, confirmed, false positives, missed navigations, precision/recall/F1, avg lead time, total time saved
+- **Live event stream**: ring buffer of last N prediction events + confirmations, sortable/filterable by elementId and status
+- **Inspector**: select a row to see full payload (elementId, confidence, predictedPoint, timestamps, callback duration, URLs)
+- **Flows**: list of multi-step flows with per-step breakdown and totalLeadTimeMs
+
+### Interactions
+
+- **Toggle profiling**: pause/resume via `profiler.setEnabled()`
+- **Reset data**: clear all recorded data via `profiler.reset()`
+- **Copy report JSON**: `profiler.getReport()` to clipboard
+- **Highlight element**: hover a row to outline the tracked DOM element (uses `engine.getElementById()`)
+
+### Docking
+
+`dock="bottom" | "right" | "left" | "floating"` — default `"bottom"`. Floating mode: fixed bottom-right with resize handle.
+
+### Architecture
+
+The panel is a thin subscriber to profiler state:
+
+```typescript
+// Inside ForeseeDevtools
+const snapshot = useSyncExternalStore(
+  profiler.subscribe,
+  profiler.getSnapshot
+)
+```
+
+This keeps it correct under React concurrent rendering and avoids polling. The profiler exposes `subscribe()` + `getSnapshot()` (same pattern as `useSyncExternalStore` expects).
+
+## Engine API Addition: resolveIdFromEventTarget
+
+The profiler needs to map DOM click events back to registered element IDs. Since the engine's `elements` map is private, we add two public methods backed by a `WeakMap<HTMLElement, string>` maintained during register/unregister.
+
+```typescript
+class TrajectoryEngine {
+  // ... existing methods ...
+
+  // NEW: Map a click target (or any DOM node) to its registered element ID.
+  // Walks up the parentElement chain until a match is found.
+  resolveIdFromEventTarget(target: EventTarget | null): string | null
+
+  // NEW: Get the registered DOM element by ID (for devtools highlight overlay).
+  getElementById(id: string): HTMLElement | null
+}
+```
+
+The `WeakMap` is O(1) lookup. DOM ancestor walk is typically 1-5 levels (click on text inside a button). No data attributes needed.
+
+## Navigation Correlation Strategy
+
+Navigation correlation uses two layers to handle both SPA and MPA navigations.
+
+### SPA Navigations (Same-Document)
+
+When profiling is enabled, the profiler wraps `history.pushState` and `history.replaceState` and listens to `popstate`. After each navigation:
+
+1. Check if a recent `PendingNavigationRecord` has an `expectedUrl` matching the new URL
+2. If match: record as a flow step (confirmed navigation)
+3. If no recent pending navigation: increment `missedNavigations`
+
+### MPA Navigations (Full Page Reload)
+
+On click confirmation, the profiler persists a `PendingNavigationRecord` to sessionStorage:
+
+```typescript
+type PendingNavigationRecord = {
+  elementId: string
+  predictionTimestamp: number
+  clickTimestamp: number
+  expectedUrl?: string       // from closest <a> href, if available
+  sourceUrl: string
+}
+```
+
+On next page load, new profiler instance reads sessionStorage and compares `location.href` to the most recent `PendingNavigationRecord.expectedUrl`. If match: finalize as flow step.
+
+### URL Extraction
+
+On click, the profiler extracts `expectedUrl` from the closest `<a>` ancestor's `href` (normalized to path+search+hash, no origin). For buttons or programmatic router navigations where no `<a>` is present, `expectedUrl` is undefined and requires the SPA history observation or manual escape hatch.
+
+### Escape Hatches
+
+```typescript
+// For SPA routers: manually confirm a navigation occurred
+profiler.confirmNavigation({ elementId: 'settings', url: '/settings' })
+
+// For navigations without a prediction: notify so missedNavigations increments
+profiler.notifyNavigation('/unexpected-page')
 ```
 
 ## Public API Summary
@@ -397,6 +525,12 @@ class TrajectoryEngine {
     event: K,
     listener: (data: ForeseeEventMap[K]) => void
   ): () => void
+
+  // NEW: Map click target to registered element ID (for profiler click correlation)
+  resolveIdFromEventTarget(target: EventTarget | null): string | null
+
+  // NEW: Get registered element by ID (for devtools highlight overlay)
+  getElementById(id: string): HTMLElement | null
 }
 ```
 
@@ -410,13 +544,32 @@ class ForeseeProfiler {
   getReport(): ProfilerReport
   getFlows(): FlowReport[]
 
+  // Subscribable state (for React devtools panel via useSyncExternalStore)
+  subscribe(listener: () => void): () => void
+  getSnapshot(): ProfilerSnapshot
+
+  // Controls
+  setEnabled(enabled: boolean): void
+
   // Manual confirmation (SPA escape hatch)
-  confirmNavigation(elementId: string, context?: { url?: string }): void
+  confirmNavigation(context: { elementId: string; url?: string }): void
+  notifyNavigation(url?: string): void
 
   // Lifecycle
   reset(): void       // Clear all recorded data
   destroy(): void     // Unsubscribe from engine, clear listeners
 }
+```
+
+### From `foresee/devtools/react`
+
+```typescript
+// TanStack DevTools-style interactive panel
+function ForeseeDevtools(props: {
+  profiler: ForeseeProfiler
+  initialIsOpen?: boolean       // default: false
+  dock?: 'bottom' | 'right' | 'left' | 'floating'  // default: 'bottom'
+}): JSX.Element
 ```
 
 ## Testing Strategy
@@ -434,14 +587,40 @@ class ForeseeProfiler {
 - Cross-navigation: write prediction on page A → read + confirm on page B (simulated via sessionStorage)
 - Multiple elements: independent predictions for different elements, correct per-element tracking
 
+### Component Structure (Internal)
+
+| Component | Role |
+|---|---|
+| `ForeseeDevtools` | Public. Owns open/dock state. Renders toggle + panel. |
+| `DevtoolsToggle` | Internal. Fixed-position FAB button. |
+| `DevtoolsPanel` | Internal. Docked container with tabs (scoreboard, events, flows). |
+| `DevtoolsOverlay` | Internal. Absolute-positioned highlight overlay on tracked elements. |
+
+## Testing Strategy
+
+### Unit Tests
+- Event emission: verify events fire with correct payloads
+- Click correlation: simulated clicks on tracked elements via `resolveIdFromEventTarget` -> TP classification
+- Navigation correlation: mock `history.pushState`, assert navigation recorded and flows updated
+- Confirmation window: predictions that expire -> FP classification
+- Metrics computation: precision, recall, F1, lead time from known event sequences
+- sessionStorage persistence: write/read round-trip, ring buffer eviction, PendingNavigationRecord round-trip
+- Flow detection: consecutive confirmations group into flows, breaks on missed navigations
+
+### Integration Tests
+- Full loop: engine predicts -> callback fires -> user clicks -> profiler confirms -> report accurate
+- Cross-navigation: write prediction on page A -> read + confirm on page B (simulated via sessionStorage)
+- SPA navigation: engine predicts -> click -> history.pushState -> flow step recorded
+- Multiple elements: independent predictions for different elements, correct per-element tracking
+- React DevTools panel: renders closed by default, opens on click, displays metrics from snapshot
+
 ## Out of Scope (This Iteration)
 
-- **Visual overlay / React component** — can be built later on top of the event bus
 - **Chrome DevTools extension / custom Performance panel track** — `performance.mark` integration can be a thin layer later
 - **Engine overhead profiling** — Chrome DevTools handles this natively
-- **Automatic URL-to-element mapping** — consumers use click correlation or manual annotation
 - **Server-side analytics pipeline** — consumers can `getReport()` and send data wherever they want
 - **Bandwidth waste measurement** — would require wrapping fetch/XHR, too invasive for v1
+- **Drag-to-reposition devtools panel** — floating mode has fixed position; true drag deferred
 
 ## Constants
 

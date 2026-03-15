@@ -4,9 +4,9 @@
 
 **Goal:** Implement `foresee/devtools` — a prediction value profiler that measures whether foresee's cursor trajectory predictions actually delivered measurable UX gains, including across multi-step navigation flows.
 
-**Architecture:** Engine emits typed dev events (zero-cost when no listeners). A `ForeseeProfiler` class correlates prediction events against actual user actions (clicks, navigations) to compute precision, recall, lead time, and per-flow time savings. Cross-navigation state persists in sessionStorage.
+**Architecture:** Engine emits typed dev events (zero-cost when no listeners). A `ForeseeProfiler` class correlates prediction events against actual user actions (clicks, navigations) to compute precision, recall, lead time, and per-flow time savings. Cross-navigation state persists in sessionStorage. An interactive React panel (`<ForeseeDevtools />`) provides TanStack-style developer UX.
 
-**Tech Stack:** TypeScript (strict), Vitest + happy-dom, tsup (ESM + CJS), pnpm. No external runtime dependencies.
+**Tech Stack:** TypeScript (strict), Vitest + happy-dom, tsup (ESM + CJS), React 19, @testing-library/react, pnpm. No external runtime dependencies in core/devtools. React is a peer dep for devtools/react only.
 
 ---
 
@@ -15,7 +15,7 @@
 ```mermaid
 graph TD
     T1[Task 1: Devtools Types + Constants] --> T2[Task 2: Dev Event Emitter]
-    T2 --> T3[Task 3: Engine Integration]
+    T2 --> T3[Task 3: Engine Integration + resolveIdFromEventTarget]
     T1 --> T4[Task 4: Session Store]
     T1 --> T5[Task 5: Metrics Computation]
     T3 --> T6[Task 6: Click Correlation]
@@ -26,7 +26,12 @@ graph TD
     T7 --> T8
     T5 --> T8
     T8 --> T9[Task 9: Integration Tests]
-    T9 --> T10[Task 10: Build + Exports]
+    T8 --> T11[Task 11: Profiler Subscribable Snapshot]
+    T11 --> T12[Task 12: React Panel Shell]
+    T12 --> T13[Task 13: Live Stream + Inspector]
+    T13 --> T14[Task 14: Devtools Controls]
+    T14 --> T15[Task 15: Build devtools/react]
+    T9 --> T15
 ```
 
 ## Task Order
@@ -35,14 +40,19 @@ graph TD
 |------|------|-----------|-----------|
 | 1 | Devtools Types + Constants | — | 10 min |
 | 2 | Dev Event Emitter | 1 | 15 min |
-| 3 | Engine Integration | 2 | 20 min |
+| 3 | Engine Integration + resolveIdFromEventTarget | 2 | 25 min |
 | 4 | Session Store | 1 | 15 min |
 | 5 | Metrics Computation | 1 | 15 min |
 | 6 | Click Correlation | 3, 4 | 20 min |
-| 7 | Navigation Correlation | 3, 4 | 15 min |
+| 7 | Navigation Correlation (History API + PendingNavigationRecord) | 3, 4 | 20 min |
 | 8 | ForeseeProfiler Class | 5, 6, 7 | 25 min |
 | 9 | Integration Tests | 8 | 20 min |
-| 10 | Build + Exports | 9 | 10 min |
+| 10 | Build + Exports (devtools) | 9 | 10 min |
+| 11 | Profiler Subscribable Snapshot | 8 | 15 min |
+| 12 | React Panel Shell | 11 | 25 min |
+| 13 | Live Stream + Inspector | 12 | 25 min |
+| 14 | Devtools Controls (pause/reset/copy) | 13 | 20 min |
+| 15 | Build + Exports (devtools/react) | 9, 14 | 10 min |
 
 ---
 
@@ -383,13 +393,13 @@ git add -A && git commit -m "feat(devtools): add DevEventEmitter with typed even
 
 ---
 
-## Task 3: Engine Integration
+## Task 3: Engine Integration + resolveIdFromEventTarget
 
 **Files:**
 - Modify: `src/core/engine.ts`
-- Test: `src/core/engine.test.ts` (add dev event tests)
+- Test: `src/core/engine.test.ts` (add dev event + resolveId tests)
 
-Add `onDev()` method and event emission to `TrajectoryEngine`. Zero-cost when no listeners — gated behind `hasListeners()` check.
+Add `onDev()` method, event emission, and `resolveIdFromEventTarget()` / `getElementById()` to `TrajectoryEngine`. The `resolveIdFromEventTarget` method enables click correlation (Task 6) and the devtools highlight overlay (Task 13) without exposing the internal elements map.
 
 **Step 1: Write the failing test**
 
@@ -397,6 +407,119 @@ Add to existing `src/core/engine.test.ts`:
 
 ```typescript
 // Add to src/core/engine.test.ts
+
+describe('resolveIdFromEventTarget', () => {
+  it('resolves a registered element', () => {
+    const engine = new TrajectoryEngine()
+    const el = document.createElement('div')
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 100, bottom: 100,
+      width: 100, height: 100, x: 0, y: 0, toJSON: () => {},
+    })
+    engine.register('btn', el, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'once' },
+    })
+
+    expect(engine.resolveIdFromEventTarget(el)).toBe('btn')
+  })
+
+  it('resolves a child element inside a registered element', () => {
+    const engine = new TrajectoryEngine()
+    const parent = document.createElement('div')
+    const child = document.createElement('span')
+    parent.appendChild(child)
+    vi.spyOn(parent, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 100, bottom: 100,
+      width: 100, height: 100, x: 0, y: 0, toJSON: () => {},
+    })
+    engine.register('link', parent, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'once' },
+    })
+
+    expect(engine.resolveIdFromEventTarget(child)).toBe('link')
+  })
+
+  it('returns null for unregistered elements', () => {
+    const engine = new TrajectoryEngine()
+    const el = document.createElement('div')
+    expect(engine.resolveIdFromEventTarget(el)).toBeNull()
+  })
+
+  it('returns null for null target', () => {
+    const engine = new TrajectoryEngine()
+    expect(engine.resolveIdFromEventTarget(null)).toBeNull()
+  })
+
+  it('updates mapping when element is re-registered', () => {
+    const engine = new TrajectoryEngine()
+    const el1 = document.createElement('div')
+    const el2 = document.createElement('div')
+    vi.spyOn(el1, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 100, bottom: 100,
+      width: 100, height: 100, x: 0, y: 0, toJSON: () => {},
+    })
+    vi.spyOn(el2, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 100, bottom: 100,
+      width: 100, height: 100, x: 0, y: 0, toJSON: () => {},
+    })
+    engine.register('btn', el1, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'once' },
+    })
+    engine.register('btn', el2, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'once' },
+    })
+
+    expect(engine.resolveIdFromEventTarget(el2)).toBe('btn')
+    expect(engine.resolveIdFromEventTarget(el1)).toBeNull()
+  })
+
+  it('clears mapping on unregister', () => {
+    const engine = new TrajectoryEngine()
+    const el = document.createElement('div')
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 100, bottom: 100,
+      width: 100, height: 100, x: 0, y: 0, toJSON: () => {},
+    })
+    engine.register('btn', el, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'once' },
+    })
+    engine.unregister('btn')
+    expect(engine.resolveIdFromEventTarget(el)).toBeNull()
+  })
+})
+
+describe('getElementById', () => {
+  it('returns registered element', () => {
+    const engine = new TrajectoryEngine()
+    const el = document.createElement('div')
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 100, bottom: 100,
+      width: 100, height: 100, x: 0, y: 0, toJSON: () => {},
+    })
+    engine.register('btn', el, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'once' },
+    })
+
+    expect(engine.getElementById('btn')).toBe(el)
+  })
+
+  it('returns null for unregistered id', () => {
+    const engine = new TrajectoryEngine()
+    expect(engine.getElementById('nonexistent')).toBeNull()
+  })
+})
 
 describe('dev events', () => {
   it('onDev subscribes to dev events', () => {
@@ -476,12 +599,17 @@ Expected: FAIL — `onDev` not defined
 Changes needed:
 1. Import `DevEventEmitter` from `../devtools/events.js`
 2. Add `private readonly devEmitter = new DevEventEmitter()` field
-3. Add public `onDev()` method that delegates to `devEmitter.on()`
-4. Modify `safeFireCallback()` to accept `elementId` parameter and emit events when `devEmitter.hasListeners()` is true
-5. Modify `update()` loop: emit `prediction:fired` right before `safeFireCallback` when `canFire` is true
-6. Modify `trigger()` method: emit `prediction:fired` before calling `safeFireCallback`
+3. Add `private readonly elementToId = new WeakMap<HTMLElement, string>()` field
+4. Add public `onDev()` method that delegates to `devEmitter.on()`
+5. Add public `resolveIdFromEventTarget(target: EventTarget | null): string | null` — walks `parentElement` chain, checks WeakMap
+6. Add public `getElementById(id: string): HTMLElement | null` — returns element from the `elements` map
+7. Update `register()`: add to WeakMap; on re-register with different element, delete old from WeakMap
+8. Update `unregister()`: delete from WeakMap
+9. Modify `safeFireCallback()` to accept `elementId` parameter and emit events when `devEmitter.hasListeners()` is true
+10. Modify `update()` loop: emit `prediction:fired` right before `safeFireCallback` when `canFire` is true
+11. Modify `trigger()` method: emit `prediction:fired` before calling `safeFireCallback`
 
-Key constraint: the `DevEventEmitter` import is always present (it's a lightweight class), but the `hasListeners()` gate ensures zero runtime cost when no profiler is attached.
+Key constraint: the `DevEventEmitter` import is always present (it's a lightweight class), but the `hasListeners()` gate ensures zero runtime cost when no profiler is attached. The `WeakMap` is O(1) and does not prevent garbage collection of unmounted elements.
 
 **Step 4: Run test to verify it passes**
 
@@ -498,7 +626,7 @@ pnpm exec vitest run
 **Step 6: Commit**
 
 ```bash
-git add -A && git commit -m "feat(devtools): add onDev() to TrajectoryEngine with gated event emission"
+git add -A && git commit -m "feat(devtools): add onDev(), resolveIdFromEventTarget(), getElementById() to TrajectoryEngine"
 ```
 
 ---
@@ -1541,6 +1669,456 @@ git add -A && git commit -m "feat(devtools): add build configuration and foresee
 
 ---
 
+## Task 11: Profiler Subscribable Snapshot
+
+**Files:**
+- Modify: `src/devtools/profiler.ts`
+- Test: `src/devtools/profiler.test.ts` (add subscription tests)
+
+Add `subscribe()`, `getSnapshot()`, and `setEnabled()` to `ForeseeProfiler` so the React panel can use `useSyncExternalStore`.
+
+**Step 1: Write the failing test**
+
+Add to existing `src/devtools/profiler.test.ts`:
+
+```typescript
+describe('subscribable snapshot', () => {
+  it('subscribe returns unsubscribe function', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    const listener = vi.fn()
+    const unsub = profiler.subscribe(listener)
+    expect(typeof unsub).toBe('function')
+    unsub()
+    profiler.destroy()
+  })
+
+  it('getSnapshot returns stable shape', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    const snap = profiler.getSnapshot()
+    expect(snap).toHaveProperty('report')
+    expect(snap).toHaveProperty('events')
+    expect(snap).toHaveProperty('enabled')
+    expect(snap.enabled).toBe(true)
+    profiler.destroy()
+  })
+
+  it('notifies subscribers on new prediction event', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    const el = document.createElement('div')
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 100, right: 200, bottom: 200,
+      width: 100, height: 100, x: 100, y: 100, toJSON: () => {},
+    })
+    engine.register('btn', el, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'on_enter' },
+    })
+
+    const listener = vi.fn()
+    profiler.subscribe(listener)
+    engine.trigger('btn')
+    expect(listener).toHaveBeenCalled()
+    profiler.destroy()
+  })
+
+  it('setEnabled(false) stops recording events', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    profiler.setEnabled(false)
+    expect(profiler.getSnapshot().enabled).toBe(false)
+    profiler.destroy()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+pnpm exec vitest run src/devtools/profiler.test.ts
+```
+
+**Step 3: Implement**
+
+Add to `ForeseeProfiler`:
+- `private readonly uiSubscribers = new Set<() => void>()`
+- `private snapshotCache: ProfilerSnapshot | null = null`
+- `subscribe(listener: () => void): () => void` — adds to Set, returns unsub
+- `getSnapshot(): ProfilerSnapshot` — returns `{ report: this.getReport(), events: this.recentEvents, enabled: this.isEnabled }`
+- `setEnabled(enabled: boolean): void` — toggles event recording; when false, detaches from engine events
+- Invalidate snapshot cache and notify UI subscribers whenever internal state changes
+
+**Step 4: Run test to verify it passes**
+
+```bash
+pnpm exec vitest run src/devtools/profiler.test.ts
+```
+
+**Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(devtools): add subscribable profiler snapshot for UI consumers"
+```
+
+---
+
+## Task 12: React Panel Shell
+
+**Files:**
+- Create: `src/devtools/react/ForeseeDevtools.tsx`
+- Create: `src/devtools/react/DevtoolsToggle.tsx`
+- Create: `src/devtools/react/DevtoolsPanel.tsx`
+- Create: `src/devtools/react/index.ts`
+- Test: `src/devtools/react/ForeseeDevtools.test.tsx`
+
+**Step 1: Write the failing test**
+
+```typescript
+// src/devtools/react/ForeseeDevtools.test.tsx
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { ForeseeDevtools } from './ForeseeDevtools.js'
+import { ForeseeProfiler } from '../profiler.js'
+import { TrajectoryEngine } from '../../core/engine.js'
+
+describe('ForeseeDevtools', () => {
+  it('renders closed by default', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    render(<ForeseeDevtools profiler={profiler} />)
+
+    // Toggle button should be visible
+    expect(screen.getByRole('button', { name: /foresee/i })).toBeDefined()
+    // Panel should not be visible
+    expect(screen.queryByText('Predictions')).toBeNull()
+
+    profiler.destroy()
+  })
+
+  it('opens panel on toggle click', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    render(<ForeseeDevtools profiler={profiler} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /foresee/i }))
+
+    // Panel should now be visible with scoreboard
+    expect(screen.getByText('Predictions')).toBeDefined()
+    expect(screen.getByText('Confirmed')).toBeDefined()
+    expect(screen.getByText('Precision')).toBeDefined()
+
+    profiler.destroy()
+  })
+
+  it('renders with initialIsOpen=true', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    render(<ForeseeDevtools profiler={profiler} initialIsOpen={true} />)
+
+    expect(screen.getByText('Predictions')).toBeDefined()
+
+    profiler.destroy()
+  })
+
+  it('displays metrics from profiler snapshot', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    render(<ForeseeDevtools profiler={profiler} initialIsOpen={true} />)
+
+    // With no data, should show zeros
+    expect(screen.getByText('0')).toBeDefined()
+
+    profiler.destroy()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+pnpm exec vitest run src/devtools/react/ForeseeDevtools.test.tsx
+```
+
+**Step 3: Implement**
+
+Create `ForeseeDevtools.tsx`:
+- Uses `useSyncExternalStore(profiler.subscribe, profiler.getSnapshot)` for concurrent-safe rendering
+- Renders `DevtoolsToggle` (FAB button) when closed
+- Renders `DevtoolsPanel` when open
+- Accepts `dock` prop (`"bottom" | "right" | "left" | "floating"`)
+
+Create `DevtoolsToggle.tsx`:
+- Fixed-position button with "foresee" label
+- Calls `onToggle()` callback
+
+Create `DevtoolsPanel.tsx`:
+- Docked container (position based on `dock` prop)
+- Scoreboard row: predictions, confirmed, false positives, missed, precision, recall, F1, avg lead time, total saved
+- Inline styles (no external CSS dependency)
+
+Create `index.ts`:
+- `export { ForeseeDevtools } from './ForeseeDevtools.js'`
+
+**Step 4: Run test to verify it passes**
+
+```bash
+pnpm exec vitest run src/devtools/react/ForeseeDevtools.test.tsx
+```
+
+**Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(devtools-react): add ForeseeDevtools panel shell with useSyncExternalStore"
+```
+
+---
+
+## Task 13: Live Stream + Inspector
+
+**Files:**
+- Modify: `src/devtools/react/DevtoolsPanel.tsx`
+- Create: `src/devtools/react/DevtoolsOverlay.tsx`
+- Test: `src/devtools/react/ForeseeDevtools.test.tsx` (add stream/inspector tests)
+
+**Step 1: Write the failing test**
+
+Add to existing test file:
+
+```typescript
+describe('live event stream', () => {
+  it('shows prediction events as they occur', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    const el = document.createElement('div')
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 100, right: 200, bottom: 200,
+      width: 100, height: 100, x: 100, y: 100, toJSON: () => {},
+    })
+    engine.register('settings', el, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'on_enter' },
+    })
+
+    render(<ForeseeDevtools profiler={profiler} initialIsOpen={true} />)
+    engine.trigger('settings')
+
+    // Event should appear in the stream
+    expect(screen.getByText('settings')).toBeDefined()
+
+    profiler.destroy()
+  })
+
+  it('shows inspector when event row is clicked', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    const el = document.createElement('div')
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 100, right: 200, bottom: 200,
+      width: 100, height: 100, x: 100, y: 100, toJSON: () => {},
+    })
+    engine.register('btn', el, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'on_enter' },
+    })
+
+    render(<ForeseeDevtools profiler={profiler} initialIsOpen={true} />)
+    engine.trigger('btn')
+
+    // Click the event row
+    fireEvent.click(screen.getByText('btn'))
+
+    // Inspector should show details
+    expect(screen.getByText(/confidence/i)).toBeDefined()
+
+    profiler.destroy()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+pnpm exec vitest run src/devtools/react/ForeseeDevtools.test.tsx
+```
+
+**Step 3: Implement**
+
+Update `DevtoolsPanel.tsx`:
+- Add event list (ring buffer of recent events from profiler snapshot)
+- Each row: elementId, status (predicted/confirmed/expired), timestamp, confidence
+- Click row to select and show inspector
+
+Create `DevtoolsOverlay.tsx`:
+- On hover/selection, positions a highlight outline over the tracked DOM element
+- Uses `engine.getElementById(id)` + `getBoundingClientRect()` to position
+- Renders via a React portal to document.body
+
+**Step 4: Run test to verify it passes**
+
+**Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(devtools-react): add live event list and inspector with element highlight"
+```
+
+---
+
+## Task 14: Devtools Controls (pause/reset/copy)
+
+**Files:**
+- Modify: `src/devtools/react/DevtoolsPanel.tsx`
+- Test: `src/devtools/react/ForeseeDevtools.test.tsx` (add control tests)
+
+**Step 1: Write the failing test**
+
+Add to existing test file:
+
+```typescript
+describe('devtools controls', () => {
+  it('pause button stops new events', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    render(<ForeseeDevtools profiler={profiler} initialIsOpen={true} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /pause/i }))
+
+    expect(profiler.getSnapshot().enabled).toBe(false)
+
+    profiler.destroy()
+  })
+
+  it('reset button clears data', () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    const el = document.createElement('div')
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left: 100, top: 100, right: 200, bottom: 200,
+      width: 100, height: 100, x: 100, y: 100, toJSON: () => {},
+    })
+    engine.register('btn', el, {
+      triggerOn: () => ({ isTriggered: false }),
+      whenTriggered: () => {},
+      profile: { type: 'on_enter' },
+    })
+    engine.trigger('btn')
+
+    render(<ForeseeDevtools profiler={profiler} initialIsOpen={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /reset/i }))
+
+    const report = profiler.getReport()
+    expect(report.predictions).toBe(0)
+
+    profiler.destroy()
+  })
+
+  it('copy button writes report JSON to clipboard', async () => {
+    const engine = new TrajectoryEngine()
+    const profiler = new ForeseeProfiler(engine)
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    render(<ForeseeDevtools profiler={profiler} initialIsOpen={true} />)
+    fireEvent.click(screen.getByRole('button', { name: /copy/i }))
+
+    expect(writeText).toHaveBeenCalledOnce()
+    const json = JSON.parse(writeText.mock.calls[0][0])
+    expect(json).toHaveProperty('predictions')
+
+    profiler.destroy()
+  })
+})
+```
+
+**Step 2: Run test to verify it fails**
+
+```bash
+pnpm exec vitest run src/devtools/react/ForeseeDevtools.test.tsx
+```
+
+**Step 3: Implement**
+
+Add controls toolbar to `DevtoolsPanel.tsx`:
+- Pause/Resume button: calls `profiler.setEnabled(!snapshot.enabled)`
+- Reset button: calls `profiler.reset()`
+- Copy Report button: calls `navigator.clipboard.writeText(JSON.stringify(profiler.getReport(), null, 2))`
+
+**Step 4: Run test to verify it passes**
+
+**Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(devtools-react): add profiler controls (pause, reset, copy report)"
+```
+
+---
+
+## Task 15: Build + Exports (devtools/react)
+
+**Files:**
+- Modify: `tsup.config.ts` (add devtools-react entrypoint)
+- Modify: `package.json` (add `./devtools/react` export)
+
+**Step 1: Update tsup.config.ts**
+
+Add `'devtools-react': 'src/devtools/react/index.ts'` to the entry map.
+
+**Step 2: Update package.json**
+
+Add the `./devtools/react` export:
+```json
+"./devtools/react": {
+  "types": "./dist/devtools-react.d.ts",
+  "import": "./dist/devtools-react.js",
+  "require": "./dist/devtools-react.cjs"
+}
+```
+
+Add `react` to the `external` array in tsup config (already there for the react entrypoint).
+
+**Step 3: Verify full test suite passes**
+
+```bash
+pnpm exec vitest run
+```
+
+**Step 4: Verify build succeeds**
+
+```bash
+pnpm exec tsup
+```
+
+**Step 5: Verify package exports resolve**
+
+```bash
+node -e "const p = require('./dist/devtools-react.cjs'); console.log(Object.keys(p))"
+node --input-type=module -e "import { ForeseeDevtools } from './dist/devtools-react.js'; console.log(typeof ForeseeDevtools)"
+```
+
+**Step 6: Verify TypeScript types generate**
+
+```bash
+ls dist/devtools-react.d.ts
+```
+
+**Step 7: Run typecheck**
+
+```bash
+pnpm exec tsc --noEmit
+```
+
+**Step 8: Commit**
+
+```bash
+git add -A && git commit -m "feat(devtools-react): export foresee/devtools/react entrypoint"
+```
+
+---
+
 ## Execution Summary
 
 ```mermaid
@@ -1554,7 +2132,7 @@ gantt
     Task 2 - Dev Event Emitter     :t2, after t1, 15m
 
     section Engine Changes
-    Task 3 - Engine Integration    :t3, after t2, 20m
+    Task 3 - Engine + resolveId    :t3, after t2, 25m
 
     section Data Layer
     Task 4 - Session Store         :t4, after t1, 15m
@@ -1562,15 +2140,22 @@ gantt
 
     section Correlation
     Task 6 - Click Correlation     :t6, after t3, 20m
-    Task 7 - Navigation Correlation :t7, after t3, 15m
+    Task 7 - Navigation Correlation :t7, after t3, 20m
 
     section Profiler
     Task 8 - ForeseeProfiler       :t8, after t7, 25m
 
     section Verification
     Task 9 - Integration Tests     :t9, after t8, 20m
-    Task 10 - Build + Exports      :t10, after t9, 10m
+    Task 10 - Build devtools       :t10, after t9, 10m
+
+    section React DevTools
+    Task 11 - Subscribable Snapshot :t11, after t8, 15m
+    Task 12 - React Panel Shell    :t12, after t11, 25m
+    Task 13 - Live Stream + Inspector :t13, after t12, 25m
+    Task 14 - Devtools Controls    :t14, after t13, 20m
+    Task 15 - Build devtools/react :t15, after t14, 10m
 ```
 
-**Total estimated time: ~2.5 hours**
-**Total commits: 10 atomic commits (one per task)**
+**Total estimated time: ~4 hours**
+**Total commits: 15 atomic commits (one per task)**
