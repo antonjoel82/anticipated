@@ -20,8 +20,8 @@ function getCardGlow(snapshot: TrajectorySnapshot | undefined, isShowing: boolea
 }
 
 const PRELOAD_MAP: Record<string, () => boolean> = {
-  '/classy/orders': () => preload('orders-list', () => fakeFetch(ORDERS)),
-  '/classy/onboarding': () => preload('onboarding-step-0', () => fakeFetch(ONBOARDING_STEPS[0])),
+  '/orders': () => preload('orders-list', () => fakeFetch(ORDERS)),
+  '/onboarding': () => preload('onboarding-step-0', () => fakeFetch(ONBOARDING_STEPS[0])),
 }
 
 function StatCard({ stat }: { stat: DashboardStat }) {

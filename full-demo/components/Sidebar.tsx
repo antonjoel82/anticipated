@@ -16,7 +16,7 @@ export function Sidebar() {
 
       <div className="sidebar-nav">
         <AnticipatedLink
-          to="/classy"
+          to="/"
           icon="&#x25E7;"
           preload={() => preload('dashboard-stats', () => fakeFetch(DASHBOARD_STATS))}
         >
@@ -24,7 +24,7 @@ export function Sidebar() {
         </AnticipatedLink>
 
         <AnticipatedLink
-          to="/classy/orders"
+          to="/orders"
           icon="&#x2630;"
           preload={() => preload('orders-list', () => fakeFetch(ORDERS))}
         >
@@ -32,7 +32,7 @@ export function Sidebar() {
         </AnticipatedLink>
 
         <AnticipatedLink
-          to="/classy/onboarding"
+          to="/onboarding"
           icon="&#x27D0;"
           preload={() => preload('onboarding-step-0', () => fakeFetch(ONBOARDING_STEPS[0]))}
         >

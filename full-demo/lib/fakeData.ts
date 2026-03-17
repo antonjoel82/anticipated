@@ -64,10 +64,10 @@ export type OnboardingStep = {
 // --- Dashboard ---
 
 export const DASHBOARD_STATS: Array<DashboardStat> = [
-  { id: 'total-orders', label: 'Total Orders', value: '1,284', change: '+12.5%', isChangePositive: true, linkTo: '/classy/orders' },
-  { id: 'revenue', label: 'Revenue', value: '$48,290', change: '+8.2%', isChangePositive: true, linkTo: '/classy/orders' },
-  { id: 'active-users', label: 'Active Users', value: '342', change: '-2.1%', isChangePositive: false, linkTo: '/classy' },
-  { id: 'onboarding', label: 'Pending Setup', value: '18', change: '+3', isChangePositive: false, linkTo: '/classy/onboarding' },
+  { id: 'total-orders', label: 'Total Orders', value: '1,284', change: '+12.5%', isChangePositive: true, linkTo: '/orders' },
+  { id: 'revenue', label: 'Revenue', value: '$48,290', change: '+8.2%', isChangePositive: true, linkTo: '/orders' },
+  { id: 'active-users', label: 'Active Users', value: '342', change: '-2.1%', isChangePositive: false, linkTo: '/' },
+  { id: 'onboarding', label: 'Pending Setup', value: '18', change: '+3', isChangePositive: false, linkTo: '/onboarding' },
 ]
 
 // --- Orders ---
