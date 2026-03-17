@@ -1,6 +1,6 @@
 import { type CSSProperties } from 'react'
-import { useTrajectory } from 'foresee/react'
-import type { TrajectorySnapshot, RegisterConfig } from 'foresee/core'
+import { useTrajectory } from 'anticipated/react'
+import type { TrajectorySnapshot, RegisterConfig } from 'anticipated/core'
 
 const CONFIDENCE_VISIBLE_THRESHOLD = 0.5
 
@@ -87,7 +87,7 @@ export function App() {
       <style>{STYLES}</style>
       <div className="app-layout">
         <nav className="sidebar">
-          <div className="sidebar-brand">foresee</div>
+          <div className="sidebar-brand">anticipated</div>
           <div className="sidebar-section-label">Navigation</div>
           <div className="sidebar-nav">
             {NAV_ITEMS.map((item) => (

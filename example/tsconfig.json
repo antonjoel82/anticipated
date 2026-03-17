@@ -4,8 +4,8 @@
     "baseUrl": ".",
     "noEmit": true,
     "paths": {
-      "foresee/react": ["../src/react/index.ts"],
-      "foresee/core": ["../src/core/index.ts"]
+      "anticipated/react": ["../src/react/index.ts"],
+      "anticipated/core": ["../src/core/index.ts"]
     }
   },
   "include": ["."]

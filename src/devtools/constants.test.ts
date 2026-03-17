@@ -17,6 +17,6 @@ describe('devtools constants', () => {
   })
 
   it('has a session storage key', () => {
-    expect(C.SESSION_STORAGE_KEY).toBe('foresee:profiler')
+    expect(C.SESSION_STORAGE_KEY).toBe('anticipated:profiler')
   })
 })

@@ -18,7 +18,7 @@ import { SessionStore } from './session-store.js'
 import { ClickCorrelator } from './correlation.js'
 import { computeReport } from './metrics.js'
 
-export class ForeseeProfiler {
+export class AnticipatedProfiler {
   private readonly engine: TrajectoryEngine
   private readonly store: SessionStore
   private readonly clickCorrelator: ClickCorrelator

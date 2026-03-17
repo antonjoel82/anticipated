@@ -1,8 +1,8 @@
-export { ForeseeProfiler } from './profiler.js'
+export { AnticipatedProfiler } from './profiler.js'
 export type { ProfilerSnapshot } from './profiler.js'
 export { DevEventEmitter } from './events.js'
 export type {
-  ForeseeDevEventMap,
+  AnticipatedDevEventMap,
   PredictionFiredEvent,
   CallbackStartEvent,
   CallbackEndEvent,

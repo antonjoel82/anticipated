@@ -24,10 +24,11 @@ import {
   DEFAULT_BUFFER_SIZE,
   DEFAULT_TOLERANCE,
   CONFIDENCE_SATURATION_FRAMES,
+  CONFIDENCE_DECAY_RATE,
   DEFAULT_CONFIDENCE_THRESHOLD,
 } from './constants.js'
 import { DevEventEmitter } from '../devtools/events.js'
-import type { ForeseeDevEventMap } from '../devtools/types.js'
+import type { AnticipatedDevEventMap } from '../devtools/types.js'
 
 type RegisteredElement = {
   element: HTMLElement
@@ -47,6 +48,9 @@ export class TrajectoryEngine {
 
   private predictionState: PredictionState
   private readonly defaultTolerance: ToleranceRect
+  private readonly confidenceSaturationFrames: number
+  private readonly confidenceDecayRate: number
+  private readonly confidenceThreshold: number
   private isConnected: boolean = false
   private isDestroyed: boolean = false
   private rafId: number = 0
@@ -61,10 +65,17 @@ export class TrajectoryEngine {
   constructor(options?: EngineOptions) {
     validateEngineOptions(options)
 
+    this.confidenceSaturationFrames = options?.confidenceSaturationFrames ?? CONFIDENCE_SATURATION_FRAMES
+    this.confidenceDecayRate = options?.confidenceDecayRate ?? CONFIDENCE_DECAY_RATE
+    this.confidenceThreshold = options?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD
+
     this.predictionState = createPredictionState({
       smoothingFactor: options?.smoothingFactor ?? DEFAULT_SMOOTHING_FACTOR,
       predictionWindowMs: options?.predictionWindow ?? DEFAULT_PREDICTION_WINDOW_MS,
       bufferSize: options?.bufferSize ?? DEFAULT_BUFFER_SIZE,
+      decelerationWindowFloor: options?.decelerationWindowFloor,
+      decelerationDampening: options?.decelerationDampening,
+      minVelocityThreshold: options?.minVelocityThreshold,
     })
 
     this.defaultTolerance = normalizeTolerance(options?.defaultTolerance)
@@ -164,9 +175,9 @@ export class TrajectoryEngine {
     }
   }
 
-  onDev<K extends keyof ForeseeDevEventMap>(
+  onDev<K extends keyof AnticipatedDevEventMap>(
     event: K,
-    listener: (data: ForeseeDevEventMap[K]) => void,
+    listener: (data: AnticipatedDevEventMap[K]) => void,
   ): () => void {
     return this.devEmitter.on(event, listener)
   }
@@ -295,9 +306,10 @@ export class TrajectoryEngine {
   }
 
   private expandConvenienceConfig(config: ConvenienceConfig): ElementConfig {
+    const threshold = this.confidenceThreshold
     return {
       triggerOn: (snapshot) => ({
-        isTriggered: snapshot.isIntersecting && snapshot.confidence > DEFAULT_CONFIDENCE_THRESHOLD,
+        isTriggered: snapshot.isIntersecting && snapshot.confidence > threshold,
         reason: 'trajectory',
       }),
       whenTriggered: config.whenApproaching,
@@ -365,14 +377,20 @@ export class TrajectoryEngine {
       const distancePx: number = distanceToAABB(cursorX, cursorY, this.scratchRect)
 
       if (isIntersecting) {
-        registered.state.consecutiveHitFrames++
+        registered.state.consecutiveHitFrames = Math.min(
+          this.confidenceSaturationFrames,
+          registered.state.consecutiveHitFrames + 1,
+        )
       } else {
-        registered.state.consecutiveHitFrames = 0
+        registered.state.consecutiveHitFrames = Math.max(
+          0,
+          registered.state.consecutiveHitFrames - this.confidenceDecayRate,
+        )
       }
 
       const confidence: number = Math.min(
         1,
-        registered.state.consecutiveHitFrames / CONFIDENCE_SATURATION_FRAMES,
+        registered.state.consecutiveHitFrames / this.confidenceSaturationFrames,
       )
 
       const snapshot: TrajectorySnapshot = {

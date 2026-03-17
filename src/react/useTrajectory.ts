@@ -54,12 +54,11 @@ export function useTrajectory(options?: EngineOptions): UseTrajectoryReturn {
       if (!engine) return
       if (element) {
         elementCache.current.set(id, element)
-        const latestConfig: RegisterConfig = configsRef.current.get(id)!
+        const latestConfig: RegisterConfig | undefined = configsRef.current.get(id)
+        if (!latestConfig) return
         engine.register(id, element, latestConfig)
       } else {
         elementCache.current.delete(id)
-        engine.unregister(id)
-        configsRef.current.delete(id)
         subscribeCache.current.delete(id)
         refCallbackCache.current.delete(id)
       }

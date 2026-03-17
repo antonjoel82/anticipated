@@ -72,6 +72,12 @@ export type EngineOptions = {
   bufferSize?: number
   eventTarget?: EventTarget
   defaultTolerance?: Tolerance
+  confidenceSaturationFrames?: number
+  confidenceDecayRate?: number
+  confidenceThreshold?: number
+  minVelocityThreshold?: number
+  decelerationWindowFloor?: number
+  decelerationDampening?: number
 }
 
 export type ElementState = {

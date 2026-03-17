@@ -13,6 +13,9 @@ export type PredictionConfig = {
   smoothingFactor: number
   predictionWindowMs: number
   bufferSize: number
+  decelerationWindowFloor: number
+  decelerationDampening: number
+  minVelocityThreshold: number
 }
 
 export type PredictionState = {
@@ -30,6 +33,9 @@ export function createPredictionState(config?: Partial<PredictionConfig>): Predi
     smoothingFactor: config?.smoothingFactor ?? DEFAULT_SMOOTHING_FACTOR,
     predictionWindowMs: config?.predictionWindowMs ?? DEFAULT_PREDICTION_WINDOW_MS,
     bufferSize: config?.bufferSize ?? DEFAULT_BUFFER_SIZE,
+    decelerationWindowFloor: config?.decelerationWindowFloor ?? DECELERATION_WINDOW_FLOOR,
+    decelerationDampening: config?.decelerationDampening ?? DECELERATION_DAMPENING,
+    minVelocityThreshold: config?.minVelocityThreshold ?? MIN_VELOCITY_THRESHOLD,
   }
 
   return {
@@ -80,19 +86,21 @@ export function updatePrediction(state: PredictionState, point: TimestampedPoint
   const acceleration: number = (currentSpeed - state.previousSpeed) / dt
   state.previousSpeed = currentSpeed
 
+  let targetWindowMs: number
   if (acceleration < 0) {
     const windowScale: number = Math.max(
-      DECELERATION_WINDOW_FLOOR,
-      1 + acceleration * DECELERATION_DAMPENING / Math.max(currentSpeed, MIN_VELOCITY_THRESHOLD),
+      state.config.decelerationWindowFloor,
+      1 + acceleration * state.config.decelerationDampening / Math.max(currentSpeed, state.config.minVelocityThreshold),
     )
-    state.adjustedWindowMs = state.config.predictionWindowMs * windowScale
+    targetWindowMs = state.config.predictionWindowMs * windowScale
   } else {
-    state.adjustedWindowMs = state.config.predictionWindowMs
+    targetWindowMs = state.config.predictionWindowMs
   }
+  state.adjustedWindowMs = alpha * targetWindowMs + (1 - alpha) * state.adjustedWindowMs
 
   const windowSeconds: number = state.adjustedWindowMs / 1000
 
-  if (currentSpeed < MIN_VELOCITY_THRESHOLD) {
+  if (currentSpeed < state.config.minVelocityThreshold) {
     state.predictedPoint.x = point.x
     state.predictedPoint.y = point.y
   } else {

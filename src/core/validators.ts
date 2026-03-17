@@ -54,6 +54,30 @@ export function validateEngineOptions(options: EngineOptions | undefined): void 
   if (options.defaultTolerance !== undefined) {
     validateToleranceValue(options.defaultTolerance)
   }
+
+  if (options.confidenceSaturationFrames !== undefined) {
+    validateRange(options.confidenceSaturationFrames, 'confidenceSaturationFrames', 1, 60)
+  }
+
+  if (options.confidenceDecayRate !== undefined) {
+    validateRange(options.confidenceDecayRate, 'confidenceDecayRate', 0, 5)
+  }
+
+  if (options.confidenceThreshold !== undefined) {
+    validateRange(options.confidenceThreshold, 'confidenceThreshold', 0, 1)
+  }
+
+  if (options.minVelocityThreshold !== undefined) {
+    validateRange(options.minVelocityThreshold, 'minVelocityThreshold', 0, 50)
+  }
+
+  if (options.decelerationWindowFloor !== undefined) {
+    validateRange(options.decelerationWindowFloor, 'decelerationWindowFloor', 0.1, 1)
+  }
+
+  if (options.decelerationDampening !== undefined) {
+    validateRange(options.decelerationDampening, 'decelerationDampening', 0, 2)
+  }
 }
 
 export function validateElementConfig(config: ElementConfig): void {

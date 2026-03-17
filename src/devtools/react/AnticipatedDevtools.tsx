@@ -1,15 +1,15 @@
 import { useState, useSyncExternalStore } from 'react'
-import type { ForeseeProfiler } from '../profiler.js'
+import type { AnticipatedProfiler } from '../profiler.js'
 import { DevtoolsToggle } from './DevtoolsToggle.js'
 import { DevtoolsPanel } from './DevtoolsPanel.js'
 
-type ForeseeDevtoolsProps = {
-  profiler: ForeseeProfiler
+type AnticipatedDevtoolsProps = {
+  profiler: AnticipatedProfiler
   initialIsOpen?: boolean
   dock?: 'bottom' | 'right' | 'floating'
 }
 
-export function ForeseeDevtools({ profiler, initialIsOpen = false }: ForeseeDevtoolsProps) {
+export function AnticipatedDevtools({ profiler, initialIsOpen = false }: AnticipatedDevtoolsProps) {
   const [isOpen, setIsOpen] = useState(initialIsOpen)
 
   const snapshot = useSyncExternalStore(
