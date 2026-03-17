@@ -906,6 +906,8 @@ select.form-input {
   border-radius: var(--radius-lg);
   padding: 20px;
   width: 300px;
+  max-height: 480px;
+  overflow-y: auto;
   backdrop-filter: blur(12px);
   animation: fadeUp 0.15s ease-out;
 }
@@ -916,6 +918,9 @@ select.form-input {
 }
 
 .settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 16px;
 }
 
@@ -923,6 +928,27 @@ select.form-input {
   font-size: 0.92rem;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.settings-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.settings-close-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-body);
 }
 
 .settings-row {

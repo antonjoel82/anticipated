@@ -63,15 +63,20 @@ export function SettingsPanel() {
 
   return (
     <div className={`settings-panel ${isCollapsed ? 'collapsed' : ''}`}>
-      <button className="settings-toggle-btn" onClick={() => setIsCollapsed(!isCollapsed)}>
-        <span className="settings-toggle-icon">{isCollapsed ? '\u2699' : '\u2715'}</span>
-        {isCollapsed && <span className="settings-toggle-label">Settings</span>}
-      </button>
+      {isCollapsed && (
+        <button className="settings-toggle-btn" onClick={() => setIsCollapsed(false)}>
+          <span className="settings-toggle-icon">{'\u2699'}</span>
+          <span className="settings-toggle-label">Settings</span>
+        </button>
+      )}
 
       {!isCollapsed && (
         <div className="settings-body">
           <div className="settings-header">
             <h3>Demo Settings</h3>
+            <button className="settings-close-btn" onClick={() => setIsCollapsed(true)} aria-label="Close settings">
+              {'\u2715'}
+            </button>
           </div>
 
           <div className="settings-row">
