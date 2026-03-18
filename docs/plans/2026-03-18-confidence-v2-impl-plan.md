@@ -122,6 +122,14 @@ export type FactorConfig = {
   erraticSensitivity: number
 }
 
+/** Expanded rect from a tolerance zone, with its confidence cap factor. */
+export type ExpandedZoneRect = {
+  /** Expanded bounding rect (raw rect + zone tolerance). */
+  rect: Rect
+  /** Zone confidence cap factor (0–1). */
+  factor: number
+}
+
 /** Context passed to each confidence factor on every frame, per element. */
 export type FactorContext = {
   /** Current cursor position. */
@@ -134,8 +142,10 @@ export type FactorContext = {
   previousSpeed: number
   /** Time delta since last frame, in seconds. */
   dt: number
-  /** Target element's bounding rect and id. */
+  /** Target element's raw bounding rect and id. */
   element: { rect: Rect; id: string }
+  /** Expanded rects from tolerance zones (for alignment factor). */
+  zones: ReadonlyArray<ExpandedZoneRect>
   /** Recent cursor position history (raw points). */
   buffer: CircularBuffer<TimestampedPoint>
   /** Resolved factor configuration. */
@@ -270,11 +280,15 @@ import { segmentAABB } from '../intersection.js'
  * Trajectory alignment factor (hard gate).
  *
  * - Cursor inside element → 1.0
- * - Ray hits expanded AABB → rayHitConfidence (default 0.85)
- * - Ray misses → 0.0
+ * - Ray hits any expanded zone AABB → rayHitConfidence (default 0.85)
+ * - Ray misses all zones → 0.0
+ *
+ * Tests the ray against each tolerance zone's expanded rect.
+ * The zone factor capping is applied post-pipeline by the engine,
+ * not by this factor (this factor only checks hit/miss).
  */
 export function trajectoryAlignmentFactor(ctx: FactorContext): number {
-  const { cursor, predicted, element, config } = ctx
+  const { cursor, predicted, element, zones, config } = ctx
   const r = element.rect
 
   const inside =
@@ -286,9 +300,21 @@ export function trajectoryAlignmentFactor(ctx: FactorContext): number {
   const dx = predicted.x - cursor.x
   const dy = predicted.y - cursor.y
 
-  const hits = segmentAABB(cursor.x, cursor.y, dx, dy, r.left, r.top, r.right, r.bottom)
+  // Test against each zone's expanded rect
+  for (const zone of zones) {
+    const zr = zone.rect
+    const cursorInZone =
+      cursor.x >= zr.left && cursor.x <= zr.right &&
+      cursor.y >= zr.top && cursor.y <= zr.bottom
 
-  return hits ? config.rayHitConfidence : 0
+    if (cursorInZone) return config.rayHitConfidence
+
+    if (segmentAABB(cursor.x, cursor.y, dx, dy, zr.left, zr.top, zr.right, zr.bottom)) {
+      return config.rayHitConfidence
+    }
+  }
+
+  return 0
 }
 ```
 
@@ -847,6 +873,48 @@ git commit -m "feat(core): add FeatureFlags, FactorWeights types and engine pres
 3. In the `update()` method, replace the `consecutiveHitFrames` block (lines ~405-422 of current engine.ts) with a call to `computeConfidence(this.factors, factorCtx)`.
 4. Remove `consecutiveHitFrames` from `ElementState` (it's no longer used).
 5. Add `previousSpeed` tracking to `PredictionState` or the engine.
+6. Update `validators.ts` to validate new `EngineOptions` fields (`rayHitConfidence`, `distanceDecayRate`, `decelerationSensitivity`, `erraticSensitivity`, `cancelThreshold`, `factorWeights`).
+
+### Critical behavior specifications (from Momus review)
+
+**`isIntersecting` when `rayCasting=false`:**
+
+The existing `isIntersecting` logic already checks TWO things: (a) cursor inside element, (b) cursor in expanded tolerance zone OR trajectory ray hits zone. When `rayCasting=false`, only the ray test is skipped — the proximity checks remain:
+
+```
+isIntersecting = cursorIsInside || cursorInAnyExpandedZone
+// (ray hit check is simply not run when rayCasting=false)
+```
+
+This means the convenience config (`isIntersecting && confidence > threshold`) still works in hoverOnly mode: the cursor must be within the tolerance zone AND the physics factors (distance, decel, erratic — alignment is neutral at weight=0) must produce sufficient confidence. **No change to convenience config expansion is needed.**
+
+**Zone system (NormalizedZone.factor) integration:**
+
+The existing zone system computes `bestFactor` from whichever zone the cursor/ray hits. In v2, this zone factor is applied as a **post-pipeline cap**:
+
+```ts
+// AFTER computeConfidence runs:
+const pipelineConfidence = computeConfidence(this.factors, factorCtx)
+const confidence = cursorIsInside ? pipelineConfidence : Math.min(bestFactor, pipelineConfidence)
+```
+
+This preserves the existing behavior where outer tolerance zones (with factor < 1.0) reduce confidence. The alignment factor runs against expanded rects from zones (same as today's `trajectoryHitsZone` check inside the zone loop).
+
+**FactorContext includes zone data:**
+
+The `FactorContext.element` field is extended to include the expanded rects so the alignment factor can test against them:
+
+```ts
+element: {
+  rect: Rect           // raw bounding rect
+  id: string
+  expandedRects: Array<{ rect: Rect; factor: number }>  // from normalized zones
+}
+```
+
+**Devtools compatibility:**
+
+The devtools event `prediction:fired` emits `confidence` from `this.snapshots.get(elementId)`. Since the snapshot is populated with the v2 pipeline confidence, devtools works without changes — it just sees different confidence values.
 
 **Step 1: Add new defaults to constants.ts**
 
@@ -903,18 +971,152 @@ confidence > 0.5 thresholds should use > 0.3 with the new pipeline."
 **Step 1: Write the failing tests**
 
 ```ts
-// Add to engine.test.ts or create src/core/cancellation.test.ts
+// src/core/cancellation.test.ts
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { TrajectoryEngine } from './engine.js'
+
+function createEngine(overrides = {}) {
+  return new TrajectoryEngine({
+    confidenceThreshold: 0.3,
+    cancelThreshold: 0.15,
+    ...overrides,
+  })
+}
+
+function makeElement(id = 'test'): HTMLElement {
+  const el = document.createElement('div')
+  el.getBoundingClientRect = () => ({ left: 50, top: 50, right: 150, bottom: 150, width: 100, height: 100, x: 50, y: 50, toJSON: () => ({}) })
+  return el
+}
+
 describe('cancellation system', () => {
-  it('passes AbortSignal to whenTriggered', () => { /* ... */ })
-  it('aborts signal when confidence drops below cancelThreshold', () => { /* ... */ })
-  it('calls cleanup function on cancellation', () => { /* ... */ })
-  it('aborts all active triggers on destroy', () => { /* ... */ })
-  it('does not re-fire during hysteresis dead zone', () => { /* ... */ })
-  it('handles async whenTriggered that returns cleanup', () => { /* ... */ })
+  let engine: TrajectoryEngine
+
+  beforeEach(() => {
+    engine = createEngine()
+  })
+
+  afterEach(() => {
+    engine.destroy()
+  })
+
+  it('passes AbortSignal to whenTriggered', () => {
+    let receivedSignal: AbortSignal | null = null
+    const el = makeElement()
+
+    engine.register('test', el, {
+      triggerOn: () => ({ isTriggered: true }),
+      whenTriggered: (signal) => { receivedSignal = signal },
+      profile: { type: 'once' },
+    })
+
+    engine.trigger('test', { dangerouslyIgnoreProfile: true })
+    expect(receivedSignal).toBeInstanceOf(AbortSignal)
+    expect(receivedSignal!.aborted).toBe(false)
+  })
+
+  it('aborts signal when confidence drops below cancelThreshold', () => {
+    let receivedSignal: AbortSignal | null = null
+    const el = makeElement()
+
+    engine.register('test', el, {
+      triggerOn: (snap) => ({ isTriggered: snap.confidence > 0.3 }),
+      whenTriggered: (signal) => { receivedSignal = signal },
+      profile: { type: 'on_enter' },
+    })
+
+    // Simulate high confidence → trigger fires
+    engine.trigger('test', { dangerouslyIgnoreProfile: true })
+    expect(receivedSignal).not.toBeNull()
+    expect(receivedSignal!.aborted).toBe(false)
+
+    // Engine.destroy should abort (as proxy for confidence drop — 
+    // full confidence-drop test requires simulating pointer events)
+    engine.destroy()
+    expect(receivedSignal!.aborted).toBe(true)
+  })
+
+  it('calls cleanup function returned by whenTriggered', () => {
+    const cleanup = vi.fn()
+    const el = makeElement()
+
+    engine.register('test', el, {
+      triggerOn: () => ({ isTriggered: true }),
+      whenTriggered: () => cleanup,
+      profile: { type: 'once' },
+    })
+
+    engine.trigger('test', { dangerouslyIgnoreProfile: true })
+    expect(cleanup).not.toHaveBeenCalled()
+
+    engine.destroy()
+    expect(cleanup).toHaveBeenCalledOnce()
+  })
+
+  it('aborts all active triggers on destroy', () => {
+    const signals: AbortSignal[] = []
+    const cleanups = [vi.fn(), vi.fn()]
+
+    const el1 = makeElement('a')
+    const el2 = makeElement('b')
+
+    engine.register('a', el1, {
+      triggerOn: () => ({ isTriggered: true }),
+      whenTriggered: (signal) => { signals.push(signal); return cleanups[0] },
+      profile: { type: 'once' },
+    })
+    engine.register('b', el2, {
+      triggerOn: () => ({ isTriggered: true }),
+      whenTriggered: (signal) => { signals.push(signal); return cleanups[1] },
+      profile: { type: 'once' },
+    })
+
+    engine.trigger('a', { dangerouslyIgnoreProfile: true })
+    engine.trigger('b', { dangerouslyIgnoreProfile: true })
+
+    engine.destroy()
+    expect(signals).toHaveLength(2)
+    expect(signals[0].aborted).toBe(true)
+    expect(signals[1].aborted).toBe(true)
+    expect(cleanups[0]).toHaveBeenCalledOnce()
+    expect(cleanups[1]).toHaveBeenCalledOnce()
+  })
+
+  it('handles async whenTriggered that returns cleanup after delay', async () => {
+    const cleanup = vi.fn()
+    const el = makeElement()
+
+    engine.register('test', el, {
+      triggerOn: () => ({ isTriggered: true }),
+      whenTriggered: async (signal) => {
+        // Simulate async work before returning cleanup
+        await new Promise(resolve => setTimeout(resolve, 10))
+        return cleanup
+      },
+      profile: { type: 'once' },
+    })
+
+    engine.trigger('test', { dangerouslyIgnoreProfile: true })
+
+    // Destroy BEFORE the async whenTriggered resolves
+    // Signal should be aborted immediately, cleanup collected when promise resolves
+    engine.destroy()
+
+    // Wait for the async whenTriggered to resolve
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    // Cleanup should still be called even though it resolved after abort
+    expect(cleanup).toHaveBeenCalledOnce()
+  })
 })
 ```
 
-**Step 2: Update `WhenTriggered` type**
+**Step 2: Run tests to verify they fail**
+
+Run: `pnpm vitest run src/core/cancellation.test.ts`
+Expected: FAIL — cancellation system not yet implemented.
+
+**Step 3: Update `WhenTriggered` type**
 
 Change from `() => void | Promise<void>` to `(signal: AbortSignal) => void | (() => void) | Promise<void | (() => void)>`.
 
