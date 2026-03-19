@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, type ReactNode } from 're
 import { useAnticipated } from 'anticipated/react'
 import { AnticipatedProfiler } from 'anticipated/devtools'
 import type { RegisterConfig, TrajectorySnapshot, TriggerOptions, NormalizedZone } from 'anticipated/core'
+import type { TrajectoryEngine } from 'anticipated/core'
 import type { RefCallback } from 'react'
 import { useDemoStore, type DemoSettings } from '../lib/demoStore.js'
 
@@ -11,6 +12,7 @@ type TrajectoryContextType = {
   getSnapshot: (id: string) => TrajectorySnapshot | undefined
   getElementZones: (id: string) => ReadonlyArray<NormalizedZone> | undefined
   trigger: (id: string, options?: TriggerOptions) => void
+  engine: TrajectoryEngine | null
   profiler: AnticipatedProfiler | null
 }
 

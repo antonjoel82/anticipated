@@ -6,6 +6,7 @@ export type {
   PredictionFiredEvent,
   CallbackStartEvent,
   CallbackEndEvent,
+  PredictionCancelledEvent,
   ProfilerOptions,
   ProfilerReport,
   FlowReport,

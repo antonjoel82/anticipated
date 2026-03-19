@@ -31,12 +31,20 @@ export type Rect = {
   bottom: number
 }
 
+export type FactorScores = {
+  alignment: number
+  distance: number
+  deceleration: number
+  erratic: number
+}
+
 export type TrajectorySnapshot = {
   isIntersecting: boolean
   distancePx: number
   velocity: Velocity
   confidence: number
   predictedPoint: Point
+  factors: FactorScores
 }
 
 export type TriggerReason = 'trajectory' | 'distance' | 'velocity' | 'confidence' | 'custom'
@@ -57,19 +65,43 @@ export type TriggerProfile =
   | TriggerProfileEveryFrame
   | TriggerProfileCooldown
 
+export type TriggerCleanup = () => void
+
+export type WhenTriggered =
+  | ((signal: AbortSignal) => void | TriggerCleanup | Promise<void | TriggerCleanup>)
+
 export type ElementConfig = {
   triggerOn: (snapshot: TrajectorySnapshot) => TriggerResult
-  whenTriggered: () => void | Promise<void>
+  whenTriggered: WhenTriggered
   profile: TriggerProfile
   tolerance?: Tolerance
 }
 
 export type ConvenienceConfig = {
-  whenApproaching: () => void | Promise<void>
+  whenApproaching: WhenTriggered
   tolerance?: Tolerance
 }
 
+export type ActiveTrigger = {
+  controller: AbortController
+  cleanup: TriggerCleanup | null
+}
+
 export type RegisterConfig = ElementConfig | ConvenienceConfig
+
+export type FeatureFlags = {
+  rayCasting: boolean
+  distanceScoring: boolean
+  erraticDetection: boolean
+  passThroughDetection: boolean
+}
+
+export type FactorWeights = {
+  trajectoryAlignment: number
+  distance: number
+  deceleration: number
+  erratic: number
+}
 
 export type EngineOptions = {
   predictionWindow?: number
@@ -77,12 +109,19 @@ export type EngineOptions = {
   bufferSize?: number
   eventTarget?: EventTarget
   defaultTolerance?: Tolerance
-  confidenceSaturationFrames?: number
-  confidenceDecayRate?: number
   confidenceThreshold?: number
   minVelocityThreshold?: number
   decelerationWindowFloor?: number
   decelerationDampening?: number
+  features?: Partial<FeatureFlags>
+  factorWeights?: Partial<FactorWeights>
+  rayHitConfidence?: number
+  distanceDecayRate?: number
+  decelerationSensitivity?: number
+  erraticSensitivity?: number
+  cancelThreshold?: number
+  confidenceDecayBaseRate?: number
+  confidenceDecayAcceleration?: number
 }
 
 export type NormalizedZone = {

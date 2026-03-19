@@ -35,7 +35,7 @@ export function AnticipatedLink({ to, preload: preloadFn, children, icon, classN
       if (!getSettings().isAnticipatedEnabled) return
       if (preloadFn()) incrementPreloadCount()
     },
-    tolerance: 30,
+    tolerance: { top: 15, right: 50, bottom: 15, left: 10 },
   })
 
   const snapshot: TrajectorySnapshot | undefined = useSnapshot(linkId)
@@ -49,7 +49,7 @@ export function AnticipatedLink({ to, preload: preloadFn, children, icon, classN
       className={`nav-link ${isActive ? 'active' : ''} ${isGlowing ? 'glowing' : ''} ${className}`}
       style={glowStyle}
       data-anticipated-id={linkId}
-      data-anticipated-tolerance="30"
+      data-anticipated-tolerance="15,50,15,10"
     >
       {icon && <span className="nav-icon">{icon}</span>}
       <span className="nav-label">{children}</span>

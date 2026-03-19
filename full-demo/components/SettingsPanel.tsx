@@ -1,6 +1,25 @@
 import { useState } from 'react'
-import { useDemoStore, updateSettings, resetPreloadCount } from '../lib/demoStore.js'
+import { useDemoStore, updateSettings, resetPreloadCount, getSettings, DEFAULT_FACTOR_WEIGHTS, DEFAULT_FEATURES } from '../lib/demoStore.js'
+import type { FactorWeightsSettings, FeatureFlagsSettings } from '../lib/demoStore.js'
 import { clearCache } from '../lib/cache.js'
+import { presets } from 'anticipated/core'
+
+type PresetName = keyof typeof presets
+
+const PRESET_OPTIONS: Array<{ value: PresetName; label: string; description: string }> = [
+  { value: 'default', label: 'Default', description: 'Balanced defaults' },
+  { value: 'hoverOnly', label: 'Hover Only', description: 'No ray casting — proximity only' },
+  { value: 'denseGrid', label: 'Dense Grid', description: 'Tight spacing, fast response' },
+  { value: 'dashboard', label: 'Dashboard', description: 'Large targets, proximity bias' },
+  { value: 'navigation', label: 'Navigation', description: 'Compact menus, tight tolerance' },
+]
+
+const FACTOR_WEIGHT_KEYS: Record<string, keyof FactorWeightsSettings> = {
+  '__fw_ta': 'trajectoryAlignment',
+  '__fw_d': 'distance',
+  '__fw_dc': 'deceleration',
+  '__fw_e': 'erratic',
+}
 
 function EngineSlider({ label, value, unit, min, max, step, field }: {
   label: string
@@ -27,7 +46,17 @@ function EngineSlider({ label, value, unit, min, max, step, field }: {
         step={step}
         value={value}
         onChange={(e) => {
-          updateSettings({ [field]: Number(e.target.value) })
+          const v = Number(e.target.value)
+          const fwKey = FACTOR_WEIGHT_KEYS[field]
+          if (fwKey) {
+            const current = getSettings()
+            updateSettings({
+              factorWeights: { ...current.factorWeights, [fwKey]: v },
+              activePreset: 'default',
+            })
+          } else {
+            updateSettings({ [field]: v })
+          }
           clearCache()
           resetPreloadCount()
         }}
@@ -44,6 +73,45 @@ export function SettingsPanel() {
     updateSettings({ isAnticipatedEnabled: !settings.isAnticipatedEnabled })
     clearCache()
     resetPreloadCount()
+  }
+
+  const handlePresetChange = (presetName: PresetName) => {
+    const preset = presets[presetName]
+    const patch: Record<string, unknown> = { activePreset: presetName }
+
+    if ('predictionWindow' in preset && preset.predictionWindow !== undefined) patch.predictionWindow = preset.predictionWindow
+    if ('smoothingFactor' in preset && preset.smoothingFactor !== undefined) patch.smoothingFactor = preset.smoothingFactor
+    if ('minVelocityThreshold' in preset && preset.minVelocityThreshold !== undefined) patch.minVelocityThreshold = preset.minVelocityThreshold
+
+    if ('features' in preset && preset.features) {
+      patch.features = { ...DEFAULT_FEATURES, ...preset.features }
+    } else if (presetName === 'default') {
+      patch.features = { ...DEFAULT_FEATURES }
+    }
+
+    if ('factorWeights' in preset && preset.factorWeights) {
+      patch.factorWeights = { ...DEFAULT_FACTOR_WEIGHTS, ...preset.factorWeights }
+    } else if (presetName === 'default') {
+      patch.factorWeights = { ...DEFAULT_FACTOR_WEIGHTS }
+    }
+
+    updateSettings(patch)
+    clearCache()
+    resetPreloadCount()
+  }
+
+  const handleFactorWeightChange = (key: keyof FactorWeightsSettings, value: number) => {
+    updateSettings({
+      factorWeights: { ...settings.factorWeights, [key]: value },
+      activePreset: 'default',
+    })
+  }
+
+  const handleFeatureToggle = (key: keyof FeatureFlagsSettings) => {
+    updateSettings({
+      features: { ...settings.features, [key]: !settings.features[key] },
+      activePreset: 'default',
+    })
   }
 
   const handleLatencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -140,6 +208,17 @@ export function SettingsPanel() {
             </button>
           </div>
 
+          <div className="settings-row">
+            <span className="settings-label">Inspector</span>
+            <button
+              className={`toggle-switch ${settings.isShowingInspector ? 'on' : 'off'}`}
+              onClick={() => updateSettings({ isShowingInspector: !settings.isShowingInspector })}
+            >
+              <span className="toggle-thumb" />
+              <span className="toggle-text">{settings.isShowingInspector ? 'ON' : 'OFF'}</span>
+            </button>
+          </div>
+
           <div className="settings-divider" />
 
           <div className="settings-row">
@@ -152,16 +231,86 @@ export function SettingsPanel() {
           </button>
 
           <div className="settings-divider" />
+          <div className="settings-section-label">Presets</div>
+
+          <div className="settings-row column">
+            <select
+              className="form-input"
+              value={settings.activePreset}
+              onChange={(e) => handlePresetChange(e.target.value as PresetName)}
+            >
+              {PRESET_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label} — {opt.description}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="settings-divider" />
           <div className="settings-section-label">Engine Tuning</div>
 
           <EngineSlider label="Prediction Window" value={settings.predictionWindow} unit="ms" min={50} max={500} step={10} field="predictionWindow" />
           <EngineSlider label="Smoothing Factor" value={settings.smoothingFactor} min={0.05} max={1} step={0.05} field="smoothingFactor" />
-          <EngineSlider label="Confidence Frames" value={settings.confidenceSaturationFrames} min={1} max={30} step={1} field="confidenceSaturationFrames" />
-          <EngineSlider label="Confidence Decay" value={settings.confidenceDecayRate} min={0} max={2} step={0.1} field="confidenceDecayRate" />
           <EngineSlider label="Confidence Threshold" value={settings.confidenceThreshold} min={0.1} max={1} step={0.05} field="confidenceThreshold" />
           <EngineSlider label="Min Velocity" value={settings.minVelocityThreshold} unit="px/s" min={0} max={50} step={1} field="minVelocityThreshold" />
           <EngineSlider label="Decel Floor" value={settings.decelerationWindowFloor} min={0.1} max={1} step={0.05} field="decelerationWindowFloor" />
           <EngineSlider label="Decel Dampening" value={settings.decelerationDampening} min={0} max={2} step={0.1} field="decelerationDampening" />
+
+          <div className="settings-divider" />
+          <div className="settings-section-label">Factor Weights</div>
+
+          <EngineSlider label="Trajectory Align" value={settings.factorWeights.trajectoryAlignment} min={0} max={2} step={0.1} field="__fw_ta" />
+          <EngineSlider label="Distance" value={settings.factorWeights.distance} min={0} max={2} step={0.1} field="__fw_d" />
+          <EngineSlider label="Deceleration" value={settings.factorWeights.deceleration} min={0} max={2} step={0.1} field="__fw_dc" />
+          <EngineSlider label="Erratic Penalty" value={settings.factorWeights.erratic} min={0} max={2} step={0.1} field="__fw_e" />
+
+          <div className="settings-divider" />
+          <div className="settings-section-label">Feature Flags</div>
+
+          <div className="settings-row">
+            <span className="settings-label">Ray Casting</span>
+            <button
+              className={`toggle-switch ${settings.features.rayCasting ? 'on' : 'off'}`}
+              onClick={() => handleFeatureToggle('rayCasting')}
+            >
+              <span className="toggle-thumb" />
+              <span className="toggle-text">{settings.features.rayCasting ? 'ON' : 'OFF'}</span>
+            </button>
+          </div>
+
+          <div className="settings-row">
+            <span className="settings-label">Distance Scoring</span>
+            <button
+              className={`toggle-switch ${settings.features.distanceScoring ? 'on' : 'off'}`}
+              onClick={() => handleFeatureToggle('distanceScoring')}
+            >
+              <span className="toggle-thumb" />
+              <span className="toggle-text">{settings.features.distanceScoring ? 'ON' : 'OFF'}</span>
+            </button>
+          </div>
+
+          <div className="settings-row">
+            <span className="settings-label">Erratic Detection</span>
+            <button
+              className={`toggle-switch ${settings.features.erraticDetection ? 'on' : 'off'}`}
+              onClick={() => handleFeatureToggle('erraticDetection')}
+            >
+              <span className="toggle-thumb" />
+              <span className="toggle-text">{settings.features.erraticDetection ? 'ON' : 'OFF'}</span>
+            </button>
+          </div>
+
+          <div className="settings-row">
+            <span className="settings-label">Pass-Through</span>
+            <button
+              className={`toggle-switch ${settings.features.passThroughDetection ? 'on' : 'off'}`}
+              onClick={() => handleFeatureToggle('passThroughDetection')}
+            >
+              <span className="toggle-thumb" />
+              <span className="toggle-text">{settings.features.passThroughDetection ? 'ON' : 'OFF'}</span>
+            </button>
+          </div>
         </div>
       )}
     </div>

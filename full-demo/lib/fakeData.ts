@@ -185,6 +185,63 @@ export function getOrderDetail(orderId: string): OrderDetail {
   }
 }
 
+// --- Dashboard Widgets ---
+
+export type ActivityItem = {
+  id: string
+  user: string
+  action: string
+  target: string
+  orderId?: string
+  time: string
+}
+
+export type Notification = {
+  id: string
+  title: string
+  message: string
+  severity: 'info' | 'warning' | 'success' | 'error'
+  time: string
+  read: boolean
+  linkTo?: string
+  orderId?: string
+}
+
+export type TopCustomer = {
+  id: string
+  name: string
+  totalSpent: number
+  orders: number
+  lastOrder: string
+}
+
+export const RECENT_ACTIVITY: Array<ActivityItem> = [
+  { id: 'act-1', user: 'Grace Park', action: 'left a review on', target: 'ORD-007', orderId: 'ORD-007', time: '1.5 hr ago' },
+  { id: 'act-2', user: 'Frank Lee', action: 'placed order', target: 'ORD-006', orderId: 'ORD-006', time: '1 hr ago' },
+  { id: 'act-3', user: 'Eva Singh', action: 'completed onboarding', target: '', time: '45 min ago' },
+  { id: 'act-4', user: 'Carol Wu', action: 'cancelled', target: 'ORD-005', orderId: 'ORD-005', time: '31 min ago' },
+  { id: 'act-5', user: 'Bob Martinez', action: 'updated shipping on', target: 'ORD-002', orderId: 'ORD-002', time: '22 min ago' },
+  { id: 'act-6', user: 'Karen Davis', action: 'placed order', target: 'ORD-011', orderId: 'ORD-011', time: '15 min ago' },
+  { id: 'act-7', user: 'Iris Patel', action: 'confirmed delivery of', target: 'ORD-009', orderId: 'ORD-009', time: '8 min ago' },
+  { id: 'act-8', user: 'Alice Chen', action: 'placed order', target: 'ORD-001', orderId: 'ORD-001', time: '2 min ago' },
+]
+
+export const NOTIFICATIONS: Array<Notification> = [
+  { id: 'notif-1', title: 'Revenue milestone', message: 'Monthly revenue crossed $45k', severity: 'success', time: '5 min ago', read: false, linkTo: '/orders' },
+  { id: 'notif-2', title: 'Shipment delayed', message: 'ORD-003 stuck at warehouse — carrier backlog', severity: 'warning', time: '20 min ago', read: false, linkTo: '/orders', orderId: 'ORD-003' },
+  { id: 'notif-3', title: 'New signup spike', message: '12 new users in the last hour', severity: 'info', time: '35 min ago', read: false, linkTo: '/onboarding' },
+  { id: 'notif-4', title: 'Payment failed', message: 'ORD-010 payment declined — retry scheduled', severity: 'error', time: '1 hr ago', read: true, linkTo: '/orders', orderId: 'ORD-010' },
+  { id: 'notif-5', title: 'Inventory low', message: 'Wireless Mouse stock below threshold', severity: 'warning', time: '2 hr ago', read: true },
+]
+
+export const TOP_CUSTOMERS: Array<TopCustomer> = [
+  { id: 'cust-1', name: 'Iris Patel', totalSpent: 12450.50, orders: 8, lastOrder: '2024-01-11' },
+  { id: 'cust-2', name: 'Carol Wu', totalSpent: 9800.00, orders: 6, lastOrder: '2024-01-14' },
+  { id: 'cust-3', name: 'Jack Thompson', totalSpent: 7320.00, orders: 11, lastOrder: '2024-01-10' },
+  { id: 'cust-4', name: 'Alice Chen', totalSpent: 6100.25, orders: 5, lastOrder: '2024-01-15' },
+  { id: 'cust-5', name: 'Grace Park', totalSpent: 5490.00, orders: 4, lastOrder: '2024-01-12' },
+]
+
 // --- Onboarding ---
 
 export const ONBOARDING_STEPS: Array<OnboardingStep> = [

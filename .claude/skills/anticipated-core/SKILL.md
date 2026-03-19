@@ -93,6 +93,28 @@ engine.destroy()      // full teardown, clear all state
 engine.invalidateRects() // force bounding-rect refresh
 ```
 
+## Confidence Decay
+
+Confidence has temporal memory via accelerating decay. This prevents `on_enter` oscillation when cursors hover near element boundaries.
+
+- **Ramp-up**: instant — raw pipeline output used directly when it exceeds previous confidence
+- **Decay**: `rate = confidenceDecayBaseRate × (1 + consecutiveDecayFrames × confidenceDecayAcceleration)`
+- **Floor**: confidence < 0.01 snaps to 0
+- **State**: `previousConfidence` + `consecutiveDecayFrames` stored per `RegisteredElement` (private, not on exported `ElementState`)
+
+Defaults: `confidenceDecayBaseRate = 0.03`, `confidenceDecayAcceleration = 0.04`. From confidence 0.6, reaches 0 in ~55 frames (~900ms). Oscillation near threshold is smoothed within 2-3 frames.
+
+Configurable via `EngineOptions`:
+
+```ts
+new TrajectoryEngine({
+  confidenceDecayBaseRate: 0.03,
+  confidenceDecayAcceleration: 0.04,
+})
+```
+
+**Dead parameters**: `confidenceDecayRate` (0.3) and `confidenceSaturationFrames` (10) are stored but never used in `update()`. They were part of an earlier temporal ramp-up design replaced by the factor pipeline.
+
 ## Key Types
 
 ```ts
@@ -102,6 +124,24 @@ type EngineOptions = {
   bufferSize?: number          // 2–30, default 8
   defaultTolerance?: Tolerance // px expansion, default 0
   eventTarget?: EventTarget    // default document
+  features?: Partial<FeatureFlags>
+  factorWeights?: Partial<FactorWeights>
+  confidenceDecayBaseRate?: number   // default 0.03
+  confidenceDecayAcceleration?: number // default 0.04
+}
+
+type FeatureFlags = {
+  rayCasting: boolean          // default true
+  distanceScoring: boolean     // default true
+  erraticDetection: boolean    // default true
+  passThroughDetection: boolean // default true
+}
+
+type FactorWeights = {
+  trajectoryAlignment: number  // default 1.0
+  distance: number             // default 1.0
+  deceleration: number         // default 1.0
+  erratic: number              // default 1.0
 }
 
 type TrajectorySnapshot = {
@@ -112,7 +152,8 @@ type TrajectorySnapshot = {
   predictedPoint: Point // { x, y }
 }
 
-type Tolerance = number | { top: number; right: number; bottom: number; left: number }
+type ToleranceZone = { distance: number | ToleranceRect; factor: number }
+type Tolerance = number | ToleranceRect | ToleranceZone[]
 ```
 
 ## Advanced

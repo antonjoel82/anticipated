@@ -1,13 +1,16 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { Agentation } from 'agentation'
 import { AnticipatedDevtools } from 'anticipated/devtools/react'
 import { TrajectoryProvider, useSharedTrajectory } from './context/TrajectoryContext.js'
 import { Sidebar } from './components/Sidebar.js'
 import { SettingsPanel } from './components/SettingsPanel.js'
 import { DebugOverlay } from './components/DebugOverlay.js'
 import { MetricsBar } from './components/MetricsBar.js'
+import { InspectorPanel } from './components/InspectorPanel.js'
 import { Dashboard } from './pages/Dashboard.js'
 import { Orders } from './pages/Orders.js'
 import { Onboarding } from './pages/Onboarding.js'
+import { Sandbox } from './pages/Sandbox.js'
 
 function DevtoolsWrapper() {
   const { profiler } = useSharedTrajectory()
@@ -27,12 +30,15 @@ export function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/orders" element={<Orders />} />
               <Route path="/onboarding" element={<Onboarding />} />
+              <Route path="/sandbox" element={<Sandbox />} />
             </Routes>
           </main>
         </div>
         <DebugOverlay />
         <SettingsPanel />
+        <InspectorPanel />
         <DevtoolsWrapper />
+        <Agentation />
       </TrajectoryProvider>
     </BrowserRouter>
   )

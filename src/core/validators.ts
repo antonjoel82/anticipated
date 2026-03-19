@@ -75,14 +75,6 @@ export function validateEngineOptions(options: EngineOptions | undefined): void 
     validateToleranceValue(options.defaultTolerance)
   }
 
-  if (options.confidenceSaturationFrames !== undefined) {
-    validateRange(options.confidenceSaturationFrames, 'confidenceSaturationFrames', 1, 60)
-  }
-
-  if (options.confidenceDecayRate !== undefined) {
-    validateRange(options.confidenceDecayRate, 'confidenceDecayRate', 0, 5)
-  }
-
   if (options.confidenceThreshold !== undefined) {
     validateRange(options.confidenceThreshold, 'confidenceThreshold', 0, 1)
   }
@@ -97,6 +89,34 @@ export function validateEngineOptions(options: EngineOptions | undefined): void 
 
   if (options.decelerationDampening !== undefined) {
     validateRange(options.decelerationDampening, 'decelerationDampening', 0, 2)
+  }
+
+  if (options.rayHitConfidence !== undefined) {
+    validateRange(options.rayHitConfidence, 'rayHitConfidence', 0, 1)
+  }
+
+  if (options.distanceDecayRate !== undefined) {
+    validateRange(options.distanceDecayRate, 'distanceDecayRate', 0, 5)
+  }
+
+  if (options.decelerationSensitivity !== undefined) {
+    validateRange(options.decelerationSensitivity, 'decelerationSensitivity', 0, 1)
+  }
+
+  if (options.erraticSensitivity !== undefined) {
+    validateRange(options.erraticSensitivity, 'erraticSensitivity', 0, 10)
+  }
+
+  if (options.cancelThreshold !== undefined) {
+    validateRange(options.cancelThreshold, 'cancelThreshold', 0, 1)
+  }
+
+  if (options.factorWeights !== undefined) {
+    const fw = options.factorWeights
+    if (fw.trajectoryAlignment !== undefined) validateRange(fw.trajectoryAlignment, 'factorWeights.trajectoryAlignment', 0, 1)
+    if (fw.distance !== undefined) validateRange(fw.distance, 'factorWeights.distance', 0, 1)
+    if (fw.deceleration !== undefined) validateRange(fw.deceleration, 'factorWeights.deceleration', 0, 1)
+    if (fw.erratic !== undefined) validateRange(fw.erratic, 'factorWeights.erratic', 0, 1)
   }
 }
 

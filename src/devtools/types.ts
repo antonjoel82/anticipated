@@ -20,10 +20,16 @@ export type CallbackEndEvent = {
   status: 'success' | 'error'
 }
 
+export type PredictionCancelledEvent = {
+  elementId: string
+  timestamp: number
+}
+
 export interface AnticipatedDevEventMap {
   'prediction:fired': PredictionFiredEvent
   'prediction:callback-start': CallbackStartEvent
   'prediction:callback-end': CallbackEndEvent
+  'prediction:cancelled': PredictionCancelledEvent
 }
 
 export type ProfilerOptions = {

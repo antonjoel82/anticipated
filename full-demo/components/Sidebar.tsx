@@ -38,6 +38,14 @@ export function Sidebar() {
         >
           Onboarding
         </AnticipatedLink>
+
+        <AnticipatedLink
+          to="/sandbox"
+          icon="&#x29C8;"
+          preload={() => false}
+        >
+          Sandbox
+        </AnticipatedLink>
       </div>
 
       <div className="sidebar-footer">

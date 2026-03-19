@@ -43,7 +43,7 @@
     "build:demo": "vite build --config full-demo/vite.config.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "full-demo": "vite --config full-demo/vite.config.ts",
+    "dev": "vite --config full-demo/vite.config.ts",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -83,6 +83,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "agentation": "^2.3.3",
     "happy-dom": "^20.8.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

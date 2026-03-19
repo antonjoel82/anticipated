@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { validateEngineOptions, validateElementConfig, normalizeTolerance, normalizeZones } from './validators.js'
+import type { EngineOptions } from './types.js'
 
 describe('validateEngineOptions', () => {
   it('accepts undefined (all defaults)', () => {
@@ -115,6 +116,20 @@ describe('validateElementConfig', () => {
       ...validConfig,
       tolerance: [{ distance: 20, factor: 1.1 }],
     })).toThrow(/factor/)
+  })
+})
+
+type AssertNotKey<T, K extends string> = K extends keyof T ? never : true
+
+describe('EngineOptions dead field removal (ISP)', () => {
+  it('rejects confidenceSaturationFrames', () => {
+    const _: AssertNotKey<EngineOptions, 'confidenceSaturationFrames'> = true
+    expect(true).toBe(true)
+  })
+
+  it('rejects confidenceDecayRate', () => {
+    const _: AssertNotKey<EngineOptions, 'confidenceDecayRate'> = true
+    expect(true).toBe(true)
   })
 })
 

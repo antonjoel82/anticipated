@@ -4,12 +4,15 @@ import type {
   RegisterConfig,
   ConvenienceConfig,
   TrajectorySnapshot,
+  FactorScores,
   TriggerResult,
   Rect,
   NormalizedZone,
   ElementState,
   TriggerOptions,
   Point,
+  FeatureFlags,
+  ActiveTrigger,
 } from './types.js'
 import { isConvenienceConfig } from './types.js'
 import { validateEngineOptions, validateElementConfig, normalizeZones } from './validators.js'
@@ -18,15 +21,25 @@ import type { PredictionState } from './prediction.js'
 import { segmentAABB } from './intersection.js'
 import { distanceToAABB } from './distance.js'
 import { createElementState, shouldFire, updateElementState } from './triggers.js'
+import { computeConfidenceWithFactors } from './factors/compute.js'
+import { trajectoryAlignmentFactor } from './factors/alignment.js'
+import { distanceFactor } from './factors/distance-factor.js'
+import { decelerationFactor } from './factors/deceleration.js'
+import { erraticPenaltyFactor } from './factors/erratic.js'
+import type { WeightedFactor, FactorContext, FactorConfig, ExpandedZoneRect } from './factors/types.js'
 import {
   DEFAULT_PREDICTION_WINDOW_MS,
   DEFAULT_SMOOTHING_FACTOR,
   DEFAULT_BUFFER_SIZE,
-  DEFAULT_TOLERANCE,
-  CONFIDENCE_SATURATION_FRAMES,
-  CONFIDENCE_DECAY_RATE,
   DEFAULT_CONFIDENCE_THRESHOLD,
   HOVER_VELOCITY_THRESHOLD,
+  DEFAULT_RAY_HIT_CONFIDENCE,
+  DEFAULT_DISTANCE_DECAY_RATE,
+  DEFAULT_DECELERATION_SENSITIVITY,
+  DEFAULT_ERRATIC_SENSITIVITY,
+  DEFAULT_CANCEL_THRESHOLD,
+  DEFAULT_CONFIDENCE_DECAY_BASE_RATE,
+  DEFAULT_CONFIDENCE_DECAY_ACCELERATION,
 } from './constants.js'
 import { DevEventEmitter } from '../devtools/events.js'
 import type { AnticipatedDevEventMap } from '../devtools/types.js'
@@ -37,6 +50,8 @@ type RegisteredElement = {
   state: ElementState
   cachedRect: Rect
   normalizedZones: NormalizedZone[]
+  previousConfidence: number
+  consecutiveDecayFrames: number
 }
 
 export class TrajectoryEngine {
@@ -46,12 +61,18 @@ export class TrajectoryEngine {
   private readonly elementSubscribers = new Map<string, Set<() => void>>()
   private readonly devEmitter = new DevEventEmitter()
   private readonly elementToId = new WeakMap<HTMLElement, string>()
+  private readonly activeTriggers = new Map<string, ActiveTrigger>()
+  private readonly cancelThreshold: number
+  private readonly confidenceDecayBaseRate: number
+  private readonly confidenceDecayAcceleration: number
 
   private predictionState: PredictionState
   private readonly defaultZones: NormalizedZone[]
-  private readonly confidenceSaturationFrames: number
-  private readonly confidenceDecayRate: number
   private readonly confidenceThreshold: number
+  private readonly factors: WeightedFactor[]
+  private readonly factorConfig: FactorConfig
+  private readonly featureFlags: FeatureFlags
+  private lastTimestamp: number = 0
   private isConnected: boolean = false
   private isDestroyed: boolean = false
   private rafId: number = 0
@@ -66,9 +87,32 @@ export class TrajectoryEngine {
   constructor(options?: EngineOptions) {
     validateEngineOptions(options)
 
-    this.confidenceSaturationFrames = options?.confidenceSaturationFrames ?? CONFIDENCE_SATURATION_FRAMES
-    this.confidenceDecayRate = options?.confidenceDecayRate ?? CONFIDENCE_DECAY_RATE
     this.confidenceThreshold = options?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD
+    this.cancelThreshold = options?.cancelThreshold ?? DEFAULT_CANCEL_THRESHOLD
+    this.confidenceDecayBaseRate = options?.confidenceDecayBaseRate ?? DEFAULT_CONFIDENCE_DECAY_BASE_RATE
+    this.confidenceDecayAcceleration = options?.confidenceDecayAcceleration ?? DEFAULT_CONFIDENCE_DECAY_ACCELERATION
+
+    this.featureFlags = {
+      rayCasting: options?.features?.rayCasting ?? true,
+      distanceScoring: options?.features?.distanceScoring ?? true,
+      erraticDetection: options?.features?.erraticDetection ?? true,
+      passThroughDetection: options?.features?.passThroughDetection ?? true,
+    }
+
+    this.factorConfig = {
+      rayHitConfidence: options?.rayHitConfidence ?? DEFAULT_RAY_HIT_CONFIDENCE,
+      distanceDecayRate: options?.distanceDecayRate ?? DEFAULT_DISTANCE_DECAY_RATE,
+      decelerationSensitivity: options?.decelerationSensitivity ?? DEFAULT_DECELERATION_SENSITIVITY,
+      erraticSensitivity: options?.erraticSensitivity ?? DEFAULT_ERRATIC_SENSITIVITY,
+    }
+
+    const weights = options?.factorWeights
+    this.factors = [
+      { compute: trajectoryAlignmentFactor, weight: this.featureFlags.rayCasting ? (weights?.trajectoryAlignment ?? 1.0) : 0 },
+      { compute: distanceFactor, weight: this.featureFlags.distanceScoring ? (weights?.distance ?? 1.0) : 0 },
+      { compute: decelerationFactor, weight: this.featureFlags.passThroughDetection ? (weights?.deceleration ?? 1.0) : 0 },
+      { compute: erraticPenaltyFactor, weight: this.featureFlags.erraticDetection ? (weights?.erratic ?? 1.0) : 0 },
+    ]
 
     this.predictionState = createPredictionState({
       smoothingFactor: options?.smoothingFactor ?? DEFAULT_SMOOTHING_FACTOR,
@@ -130,6 +174,8 @@ export class TrajectoryEngine {
       state: createElementState(),
       cachedRect: { left: 0, top: 0, right: 0, bottom: 0 },
       normalizedZones: zones,
+      previousConfidence: 0,
+      consecutiveDecayFrames: 0,
     }
 
     this.elements.set(id, registered)
@@ -145,6 +191,7 @@ export class TrajectoryEngine {
     if (!registered) return
 
     this.elementToId.delete(registered.element)
+    this.cancelActiveTrigger(id)
 
     if (this.resizeObserver) {
       this.resizeObserver.unobserve(registered.element)
@@ -288,6 +335,7 @@ export class TrajectoryEngine {
   destroy(): void {
     if (this.isDestroyed) return
     this.disconnect()
+    this.cancelAllActiveTriggers()
     this.elements.clear()
     this.snapshots.clear()
     this.globalSubscribers.clear()
@@ -347,18 +395,32 @@ export class TrajectoryEngine {
     const pointerEvent: PointerEvent | null = this.latestPointerEvent
     if (!pointerEvent) return
 
+    const currentTimestamp = pointerEvent.timeStamp
+    const dt = this.lastTimestamp > 0 ? (currentTimestamp - this.lastTimestamp) / 1000 : 0
+    this.lastTimestamp = currentTimestamp
+
+    const capturedPreviousSpeed = this.predictionState.previousSpeed
+
     updatePrediction(this.predictionState, {
       x: pointerEvent.clientX,
       y: pointerEvent.clientY,
-      timestamp: pointerEvent.timeStamp,
+      timestamp: currentTimestamp,
     })
+
+    // Cold-start guard: on the first frame with velocity, previousSpeed is 0
+    // which looks like massive acceleration. Use current speed for neutral decel factor.
+    const previousSpeed = capturedPreviousSpeed === 0
+      ? this.predictionState.smoothedVelocity.magnitude
+      : capturedPreviousSpeed
 
     const cursorX: number = pointerEvent.clientX
     const cursorY: number = pointerEvent.clientY
+    const cursor: Point = { x: cursorX, y: cursorY }
     const predicted: Point = this.predictionState.predictedPoint
     const dx: number = predicted.x - cursorX
     const dy: number = predicted.y - cursorY
     const velocity = this.predictionState.smoothedVelocity
+    const useRayCasting = this.featureFlags.rayCasting
 
     let hasChanges: boolean = false
 
@@ -371,6 +433,7 @@ export class TrajectoryEngine {
 
       let bestFactor: number = 0
       let anyZoneHit: boolean = false
+      const expandedZoneRects: ExpandedZoneRect[] = []
 
       for (const zone of registered.normalizedZones) {
         const tol = zone.tolerance
@@ -379,14 +442,25 @@ export class TrajectoryEngine {
         const expandedMaxX: number = rawRect.right + tol.right
         const expandedMaxY: number = rawRect.bottom + tol.bottom
 
+        const expandedRect: Rect = {
+          left: expandedMinX,
+          top: expandedMinY,
+          right: expandedMaxX,
+          bottom: expandedMaxY,
+        }
+        expandedZoneRects.push({ rect: expandedRect, factor: zone.factor })
+
         const cursorInZone: boolean =
           cursorX >= expandedMinX && cursorX <= expandedMaxX &&
           cursorY >= expandedMinY && cursorY <= expandedMaxY
 
-        const trajectoryHitsZone: boolean = segmentAABB(
-          cursorX, cursorY, dx, dy,
-          expandedMinX, expandedMinY, expandedMaxX, expandedMaxY,
-        )
+        let trajectoryHitsZone = false
+        if (useRayCasting) {
+          trajectoryHitsZone = segmentAABB(
+            cursorX, cursorY, dx, dy,
+            expandedMinX, expandedMinY, expandedMaxX, expandedMaxY,
+          )
+        }
 
         if (cursorInZone || trajectoryHitsZone) {
           bestFactor = Math.max(bestFactor, zone.factor)
@@ -402,24 +476,46 @@ export class TrajectoryEngine {
       this.scratchRect.bottom = rawRect.bottom
       const distancePx: number = distanceToAABB(cursorX, cursorY, this.scratchRect)
 
+      let confidence: number
+      let pipelineFactors: FactorScores = { alignment: 1, distance: 1, deceleration: 1, erratic: 1 }
+
       if (cursorIsInside && velocity.magnitude < HOVER_VELOCITY_THRESHOLD) {
-        registered.state.consecutiveHitFrames = this.confidenceSaturationFrames
-      } else if (isIntersecting) {
-        registered.state.consecutiveHitFrames = Math.min(
-          this.confidenceSaturationFrames,
-          registered.state.consecutiveHitFrames + 1,
-        )
+        confidence = 1.0
       } else {
-        registered.state.consecutiveHitFrames = Math.max(
-          0,
-          registered.state.consecutiveHitFrames - this.confidenceDecayRate,
-        )
+        const factorCtx: FactorContext = {
+          cursor,
+          predicted: { x: predicted.x, y: predicted.y },
+          velocity: { x: velocity.x, y: velocity.y, magnitude: velocity.magnitude, angle: velocity.angle },
+          previousSpeed,
+          dt,
+          element: { rect: rawRect, id },
+          zones: expandedZoneRects,
+          buffer: this.predictionState.buffer,
+          config: this.factorConfig,
+        }
+
+        const breakdown = computeConfidenceWithFactors(this.factors, factorCtx)
+        pipelineFactors = {
+          alignment: breakdown.scores[0],
+          distance: breakdown.scores[1],
+          deceleration: breakdown.scores[2],
+          erratic: breakdown.scores[3],
+        }
+        const pipelineConfidence = breakdown.confidence
+        confidence = cursorIsInside ? pipelineConfidence : Math.min(bestFactor, pipelineConfidence)
       }
 
-      const rawConfidence: number =
-        registered.state.consecutiveHitFrames / this.confidenceSaturationFrames
-      const effectiveFactor: number = cursorIsInside ? 1.0 : bestFactor
-      const confidence: number = Math.min(effectiveFactor, rawConfidence)
+      const prev = registered.previousConfidence
+      if (confidence >= prev) {
+        registered.consecutiveDecayFrames = 0
+      } else {
+        registered.consecutiveDecayFrames++
+        const rate = this.confidenceDecayBaseRate * (1 + registered.consecutiveDecayFrames * this.confidenceDecayAcceleration)
+        const decayed = prev * (1 - rate)
+        confidence = Math.max(confidence, decayed)
+        if (confidence < 0.01) confidence = 0
+      }
+      registered.previousConfidence = confidence
 
       const snapshot: TrajectorySnapshot = {
         isIntersecting,
@@ -427,8 +523,13 @@ export class TrajectoryEngine {
         velocity: { x: velocity.x, y: velocity.y, magnitude: velocity.magnitude, angle: velocity.angle },
         confidence,
         predictedPoint: { x: predicted.x, y: predicted.y },
+        factors: pipelineFactors,
       }
       this.snapshots.set(id, snapshot)
+
+      if (this.activeTriggers.has(id) && confidence < this.cancelThreshold) {
+        this.cancelActiveTrigger(id)
+      }
 
       const triggerResult: TriggerResult = registered.config.triggerOn(snapshot)
       const now: number = performance.now()
@@ -465,12 +566,33 @@ export class TrajectoryEngine {
       })
     }
 
+    this.cancelActiveTrigger(elementId)
+
+    const controller = new AbortController()
+    const activeTrigger: ActiveTrigger = { controller, cleanup: null }
+    this.activeTriggers.set(elementId, activeTrigger)
+
     const startTime = hasDevListeners ? performance.now() : 0
     let status: 'success' | 'error' = 'success'
     try {
-      Promise.resolve(registered.config.whenTriggered()).catch(() => {
-        status = 'error'
-      })
+      const result = registered.config.whenTriggered(controller.signal)
+      if (result instanceof Promise) {
+        result.then((cleanup) => {
+          if (typeof cleanup === 'function') {
+            const current = this.activeTriggers.get(elementId)
+            if (current === activeTrigger) {
+              activeTrigger.cleanup = cleanup
+            }
+            if (controller.signal.aborted) {
+              cleanup()
+            }
+          }
+        }).catch(() => {
+          status = 'error'
+        })
+      } else if (typeof result === 'function') {
+        activeTrigger.cleanup = result
+      }
     } catch {
       status = 'error'
     }
@@ -482,6 +604,30 @@ export class TrajectoryEngine {
         durationMs: performance.now() - startTime,
         status,
       })
+    }
+  }
+
+  private cancelActiveTrigger(elementId: string): void {
+    const active = this.activeTriggers.get(elementId)
+    if (!active) return
+
+    active.controller.abort()
+    if (active.cleanup) {
+      active.cleanup()
+    }
+    this.activeTriggers.delete(elementId)
+
+    if (this.devEmitter.hasListeners()) {
+      this.devEmitter.emit('prediction:cancelled', {
+        elementId,
+        timestamp: performance.now(),
+      })
+    }
+  }
+
+  private cancelAllActiveTriggers(): void {
+    for (const [id] of this.activeTriggers) {
+      this.cancelActiveTrigger(id)
     }
   }
 

@@ -30,12 +30,6 @@ describe('smoothing factor', () => {
   })
 })
 
-describe('confidence saturation', () => {
-  it('requires at least 1 frame', () => {
-    expect(C.CONFIDENCE_SATURATION_FRAMES).toBeGreaterThan(0)
-  })
-})
-
 describe('deceleration tuning', () => {
   it('has window floor between 0 and 1', () => {
     expect(C.DECELERATION_WINDOW_FLOOR).toBeGreaterThan(0)

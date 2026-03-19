@@ -94,7 +94,8 @@ type Point = { x: number; y: number }
 type Velocity = { x: number; y: number; magnitude: number; angle: number }
 type Rect = { left: number; top: number; right: number; bottom: number }
 type ToleranceRect = { top: number; right: number; bottom: number; left: number }
-type Tolerance = number | ToleranceRect
+type ToleranceZone = { distance: number | ToleranceRect; factor: number }
+type Tolerance = number | ToleranceRect | ToleranceZone[]
 type TimestampedPoint = { x: number; y: number; timestamp: number }
 
 type TrajectorySnapshot = {
@@ -128,12 +129,44 @@ type ConvenienceConfig = {
 
 type RegisterConfig = ElementConfig | ConvenienceConfig
 
+type ToleranceZone = { distance: number | ToleranceRect; factor: number }
+type Tolerance = number | ToleranceRect | ToleranceZone[]
+
+type FeatureFlags = {
+  rayCasting: boolean
+  distanceScoring: boolean
+  erraticDetection: boolean
+  passThroughDetection: boolean
+}
+
+type FactorWeights = {
+  trajectoryAlignment: number
+  distance: number
+  deceleration: number
+  erratic: number
+}
+
 type EngineOptions = {
   predictionWindow?: number
   smoothingFactor?: number
   bufferSize?: number
   eventTarget?: EventTarget
   defaultTolerance?: Tolerance
+  confidenceSaturationFrames?: number
+  confidenceDecayRate?: number          // stored but NOT used in update loop (dead)
+  confidenceThreshold?: number
+  minVelocityThreshold?: number
+  decelerationWindowFloor?: number
+  decelerationDampening?: number
+  features?: Partial<FeatureFlags>
+  factorWeights?: Partial<FactorWeights>
+  rayHitConfidence?: number
+  distanceDecayRate?: number
+  decelerationSensitivity?: number
+  erraticSensitivity?: number
+  cancelThreshold?: number
+  confidenceDecayBaseRate?: number      // default 0.03
+  confidenceDecayAcceleration?: number  // default 0.04
 }
 
 type TriggerOptions = { dangerouslyIgnoreProfile?: boolean }
@@ -160,4 +193,13 @@ type PredictionState = { smoothedVelocity: Velocity; previousSpeed: number; adju
 | `CONFIDENCE_SATURATION_FRAMES` | 10 |
 | `MIN_VELOCITY_THRESHOLD` | 5 |
 | `DEFAULT_COOLDOWN_INTERVAL_MS` | 300 |
-| `DEFAULT_CONFIDENCE_THRESHOLD` | 0.5 |
+| `DEFAULT_CONFIDENCE_THRESHOLD` | 0.3 |
+| `HOVER_VELOCITY_THRESHOLD` | 50 |
+| `MAX_TOLERANCE_ZONES` | 5 |
+| `DEFAULT_RAY_HIT_CONFIDENCE` | 0.85 |
+| `DEFAULT_DISTANCE_DECAY_RATE` | 0.8 |
+| `DEFAULT_DECELERATION_SENSITIVITY` | 0.003 |
+| `DEFAULT_ERRATIC_SENSITIVITY` | 1.5 |
+| `DEFAULT_CANCEL_THRESHOLD` | 0.15 |
+| `DEFAULT_CONFIDENCE_DECAY_BASE_RATE` | 0.03 |
+| `DEFAULT_CONFIDENCE_DECAY_ACCELERATION` | 0.04 |
