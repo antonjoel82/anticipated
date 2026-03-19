@@ -10,7 +10,9 @@
     "skipLibCheck": true,
     "paths": {
       "anticipated/react": ["../src/react/index.ts"],
-      "anticipated/core": ["../src/core/index.ts"]
+      "anticipated/core": ["../src/core/index.ts"],
+      "anticipated/devtools": ["../src/devtools/index.ts"],
+      "anticipated/devtools/react": ["../src/devtools/react/index.ts"]
     }
   },
   "include": ["./**/*.ts", "./**/*.tsx"]
