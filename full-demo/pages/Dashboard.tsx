@@ -7,14 +7,12 @@ import {
   DASHBOARD_STATS,
   ORDERS,
   ONBOARDING_STEPS,
-  RECENT_ACTIVITY,
-  NOTIFICATIONS,
-  TOP_CUSTOMERS,
-  getOrderDetail,
+  REVENUE_BY_DAY,
+  STATUS_BREAKDOWN,
   type DashboardStat,
-  type ActivityItem,
-  type Notification,
-  type TopCustomer,
+  type RevenueDataPoint,
+  type StatusBreakdown,
+  type OrderStatus,
 } from '../lib/fakeData.js'
 import { SkeletonCard, SkeletonLine } from '../components/LoadingOverlay.js'
 import { ConfidenceBadge } from '../components/ConfidenceBadge.js'
@@ -22,21 +20,12 @@ import { useSharedTrajectory } from '../context/TrajectoryContext.js'
 import { getSettings, useDemoStore, incrementPreloadCount } from '../lib/demoStore.js'
 import { preload } from '../lib/cache.js'
 
-function getItemGlow(snapshot: TrajectorySnapshot | undefined, isShowing: boolean): CSSProperties {
+function getCardGlow(snapshot: TrajectorySnapshot | undefined, isShowing: boolean): CSSProperties {
   if (!isShowing || !snapshot || snapshot.confidence <= 0.5) return {}
   const intensity: number = (snapshot.confidence - 0.5) / 0.5
   return {
     borderColor: `rgba(74, 222, 128, ${0.3 + intensity * 0.7})`,
     boxShadow: `0 0 ${6 + intensity * 14}px rgba(74, 222, 128, ${intensity * 0.35})`,
-  }
-}
-
-function getRowGlow(snapshot: TrajectorySnapshot | undefined, isShowing: boolean): CSSProperties {
-  if (!isShowing || !snapshot || snapshot.confidence <= 0.5) return {}
-  const intensity: number = (snapshot.confidence - 0.5) / 0.5
-  return {
-    backgroundColor: `rgba(74, 222, 128, ${intensity * 0.04})`,
-    boxShadow: `inset 3px 0 0 rgba(74, 222, 128, ${0.3 + intensity * 0.7})`,
   }
 }
 
@@ -64,7 +53,7 @@ function StatCard({ stat }: { stat: DashboardStat }) {
   })
 
   const snapshot: TrajectorySnapshot | undefined = useSnapshot(`stat-${stat.id}`)
-  const glowStyle: CSSProperties = getItemGlow(snapshot, settings.isShowingPredictions)
+  const glowStyle: CSSProperties = getCardGlow(snapshot, settings.isShowingPredictions)
   const isGlowing: boolean = settings.isShowingPredictions && !!snapshot && snapshot.confidence > 0.5
 
   return (
@@ -86,185 +75,181 @@ function StatCard({ stat }: { stat: DashboardStat }) {
   )
 }
 
-const SEVERITY_COLORS: Record<Notification['severity'], string> = {
-  success: 'var(--green-rgb)',
-  warning: 'var(--amber-rgb)',
-  error: 'var(--red-rgb)',
-  info: 'var(--blue-rgb)',
+const STATUS_COLORS: Record<OrderStatus, string> = {
+  completed: 'rgb(var(--green-rgb))',
+  shipped: 'rgb(var(--blue-rgb))',
+  processing: 'rgb(var(--amber-rgb))',
+  cancelled: 'rgb(var(--red-rgb))',
 }
 
-const SEVERITY_ICONS: Record<Notification['severity'], string> = {
-  success: '\u2713',
-  warning: '\u26A0',
-  error: '\u2717',
-  info: '\u2139',
+const STATUS_LABELS: Record<OrderStatus, string> = {
+  completed: 'Completed',
+  shipped: 'Shipped',
+  processing: 'Processing',
+  cancelled: 'Cancelled',
 }
 
-function ActivityRow({ item }: { item: ActivityItem }) {
-  const { register, useSnapshot } = useSharedTrajectory()
-  const settings = useDemoStore()
-  const navigate = useNavigate()
-  const hasOrder = !!item.orderId
-
-  const ref = register(`activity-${item.id}`, {
-    whenApproaching: () => {
-      if (!getSettings().isAnticipatedEnabled) return
-      if (item.orderId) {
-        if (preload(`order-detail-${item.orderId}`, () => fakeFetch(getOrderDetail(item.orderId!)))) {
-          incrementPreloadCount()
-        }
-      }
-    },
-    tolerance: 10,
-  })
-
-  const snapshot: TrajectorySnapshot | undefined = useSnapshot(`activity-${item.id}`)
-  const glowStyle: CSSProperties = hasOrder ? getRowGlow(snapshot, settings.isShowingPredictions) : {}
-  const isGlowing: boolean = hasOrder && settings.isShowingPredictions && !!snapshot && snapshot.confidence > 0.5
-
-  return (
-    <div
-      ref={ref}
-      className={`activity-item ${hasOrder ? 'clickable' : ''} ${isGlowing ? 'glowing' : ''}`}
-      style={glowStyle}
-      onClick={hasOrder ? () => navigate('/orders') : undefined}
-      data-anticipated-id={`activity-${item.id}`}
-    >
-      <div className="activity-dot" />
-      <div className="activity-body">
-        <span className="activity-text">
-          <strong>{item.user}</strong> {item.action}{item.target ? ' ' : ''}
-          {item.target && <span className="activity-target">{item.target}</span>}
-        </span>
-        <span className="activity-time">{item.time}</span>
-      </div>
-      {hasOrder && <ConfidenceBadge snapshot={snapshot} isVisible={settings.isShowingPredictions} />}
-    </div>
-  )
-}
-
-function NotificationRow({ item }: { item: Notification }) {
-  const { register, useSnapshot } = useSharedTrajectory()
-  const settings = useDemoStore()
-  const navigate = useNavigate()
-  const hasLink = !!item.linkTo
-
-  const ref = register(`notif-${item.id}`, {
-    whenApproaching: () => {
-      if (!getSettings().isAnticipatedEnabled) return
-      if (item.orderId) {
-        if (preload(`order-detail-${item.orderId}`, () => fakeFetch(getOrderDetail(item.orderId!)))) {
-          incrementPreloadCount()
-        }
-      } else if (item.linkTo) {
-        const preloadFn: (() => boolean) | undefined = PRELOAD_MAP[item.linkTo]
-        if (preloadFn?.()) incrementPreloadCount()
-      }
-    },
-    tolerance: 10,
-  })
-
-  const snapshot: TrajectorySnapshot | undefined = useSnapshot(`notif-${item.id}`)
-  const rgb = SEVERITY_COLORS[item.severity]
-  const glowStyle: CSSProperties = hasLink ? getItemGlow(snapshot, settings.isShowingPredictions) : {}
-  const isGlowing: boolean = hasLink && settings.isShowingPredictions && !!snapshot && snapshot.confidence > 0.5
-
-  return (
-    <div
-      ref={ref}
-      className={`notification-item ${hasLink ? 'clickable' : ''} ${isGlowing ? 'glowing' : ''}`}
-      style={{ borderLeftColor: `rgb(${rgb})`, opacity: item.read ? 0.6 : 1, ...glowStyle }}
-      onClick={hasLink ? () => navigate(item.linkTo!) : undefined}
-      data-anticipated-id={`notif-${item.id}`}
-    >
-      <span className="notification-icon" style={{ color: `rgb(${rgb})` }}>
-        {SEVERITY_ICONS[item.severity]}
-      </span>
-      <div className="notification-body">
-        <span className="notification-title">{item.title}</span>
-        <span className="notification-message">{item.message}</span>
-      </div>
-      <span className="notification-time">{item.time}</span>
-      {hasLink && <ConfidenceBadge snapshot={snapshot} isVisible={settings.isShowingPredictions} />}
-    </div>
-  )
-}
-
-function TopCustomerRow({ customer }: { customer: TopCustomer }) {
+function RevenueChart({ data }: { data: Array<RevenueDataPoint> }) {
   const { register, useSnapshot } = useSharedTrajectory()
   const settings = useDemoStore()
   const navigate = useNavigate()
 
-  const ref = register(`customer-${customer.id}`, {
+  const ref = register('chart-revenue', {
     whenApproaching: () => {
       if (!getSettings().isAnticipatedEnabled) return
-      if (preload('orders-list', () => fakeFetch(ORDERS))) {
-        incrementPreloadCount()
-      }
+      if (preload('orders-list', () => fakeFetch(ORDERS))) incrementPreloadCount()
     },
-    tolerance: 12,
+    tolerance: 20,
   })
 
-  const snapshot: TrajectorySnapshot | undefined = useSnapshot(`customer-${customer.id}`)
-  const glowStyle: CSSProperties = getRowGlow(snapshot, settings.isShowingPredictions)
+  const snapshot: TrajectorySnapshot | undefined = useSnapshot('chart-revenue')
+  const glowStyle: CSSProperties = getCardGlow(snapshot, settings.isShowingPredictions)
   const isGlowing: boolean = settings.isShowingPredictions && !!snapshot && snapshot.confidence > 0.5
 
-  return (
-    <tr
-      ref={ref as React.RefCallback<HTMLTableRowElement>}
-      className={`table-row ${isGlowing ? 'glowing' : ''}`}
-      style={glowStyle}
-      onClick={() => navigate('/orders')}
-      data-anticipated-id={`customer-${customer.id}`}
-    >
-      <td className="table-cell" style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{customer.name}</td>
-      <td className="table-cell" style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-        ${customer.totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-      </td>
-      <td className="table-cell" style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{customer.orders}</td>
-      <td className="table-cell table-cell--badge" style={{ color: 'var(--text-muted)' }}>
-        {customer.lastOrder}
-        <ConfidenceBadge snapshot={snapshot} isVisible={settings.isShowingPredictions} />
-      </td>
-    </tr>
-  )
-}
+  const maxRevenue: number = Math.max(...data.map((d) => d.revenue))
+  const chartW = 560
+  const chartH = 180
+  const barGap = 8
+  const barW = (chartW - barGap * (data.length - 1)) / data.length
 
-function ActivitySkeleton() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      {Array.from({ length: 5 }, (_, i) => (
-        <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <SkeletonLine width="8px" height="8px" />
-          <SkeletonLine width="70%" height="14px" />
-          <SkeletonLine width="15%" height="12px" />
-        </div>
-      ))}
+    <div
+      ref={ref}
+      className={`card chart-card ${isGlowing ? 'glowing' : ''}`}
+      style={{ ...glowStyle, cursor: 'pointer' }}
+      onClick={() => navigate('/orders')}
+      data-anticipated-id="chart-revenue"
+    >
+      <ConfidenceBadge snapshot={snapshot} isVisible={settings.isShowingPredictions} />
+      <h2 className="card-title">Revenue</h2>
+      <svg viewBox={`0 0 ${chartW} ${chartH + 28}`} className="chart-svg">
+        {data.map((point, i) => {
+          const barH: number = Math.max(4, (point.revenue / maxRevenue) * chartH)
+          const x: number = i * (barW + barGap)
+          const y: number = chartH - barH
+
+          return (
+            <g key={point.date}>
+              <rect
+                x={x} y={y} width={barW} height={barH}
+                rx={4}
+                fill="rgba(74, 222, 128, 0.5)"
+              />
+              <text
+                x={x + barW / 2} y={chartH + 14}
+                textAnchor="middle"
+                fill="var(--text-subtle)"
+                fontSize="11"
+                fontFamily="var(--font-sans)"
+              >
+                {point.label}
+              </text>
+              <text
+                x={x + barW / 2} y={y - 6}
+                textAnchor="middle"
+                fill="var(--text-muted)"
+                fontSize="10"
+                fontFamily="var(--font-mono)"
+              >
+                ${(point.revenue / 1000).toFixed(1)}k
+              </text>
+            </g>
+          )
+        })}
+      </svg>
     </div>
   )
 }
 
-function NotificationsSkeleton() {
+function StatusChart({ data }: { data: Array<StatusBreakdown> }) {
+  const { register, useSnapshot } = useSharedTrajectory()
+  const settings = useDemoStore()
+  const navigate = useNavigate()
+
+  const ref = register('chart-status', {
+    whenApproaching: () => {
+      if (!getSettings().isAnticipatedEnabled) return
+      if (preload('orders-list', () => fakeFetch(ORDERS))) incrementPreloadCount()
+    },
+    tolerance: 20,
+  })
+
+  const snapshot: TrajectorySnapshot | undefined = useSnapshot('chart-status')
+  const glowStyle: CSSProperties = getCardGlow(snapshot, settings.isShowingPredictions)
+  const isGlowing: boolean = settings.isShowingPredictions && !!snapshot && snapshot.confidence > 0.5
+
+  const total: number = data.reduce((sum, d) => sum + d.count, 0)
+  const r = 70
+  const circumference: number = 2 * Math.PI * r
+  let offset = 0
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      {Array.from({ length: 4 }, (_, i) => (
-        <div key={i} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '12px', background: 'var(--bg-dark)', borderRadius: '8px' }}>
-          <SkeletonLine width="20px" height="20px" />
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <SkeletonLine width="40%" height="14px" />
-            <SkeletonLine width="80%" height="12px" />
-          </div>
+    <div
+      ref={ref}
+      className={`card chart-card ${isGlowing ? 'glowing' : ''}`}
+      style={{ ...glowStyle, cursor: 'pointer' }}
+      onClick={() => navigate('/orders')}
+      data-anticipated-id="chart-status"
+    >
+      <ConfidenceBadge snapshot={snapshot} isVisible={settings.isShowingPredictions} />
+      <h2 className="card-title">Orders by Status</h2>
+      <div className="chart-donut-layout">
+        <svg viewBox="0 0 200 200" className="chart-donut-svg">
+          {data.map((segment) => {
+            const pct: number = segment.count / total
+            const dashLen: number = pct * circumference
+            const dash: string = `${dashLen} ${circumference - dashLen}`
+            const rotation: number = (offset / circumference) * 360 - 90
+            offset += dashLen
+
+            return (
+              <circle
+                key={segment.status}
+                cx="100" cy="100" r={r}
+                fill="none"
+                strokeWidth="24"
+                stroke={STATUS_COLORS[segment.status]}
+                strokeDasharray={dash}
+                strokeDashoffset="0"
+                transform={`rotate(${rotation} 100 100)`}
+                strokeLinecap="round"
+              />
+            )
+          })}
+          <text x="100" y="96" textAnchor="middle" fill="var(--text-primary)" fontSize="28" fontWeight="600" fontFamily="var(--font-mono)">
+            {total}
+          </text>
+          <text x="100" y="116" textAnchor="middle" fill="var(--text-subtle)" fontSize="12" fontFamily="var(--font-sans)">
+            total orders
+          </text>
+        </svg>
+        <div className="chart-donut-legend">
+          {data.map((segment) => (
+            <div key={segment.status} className="chart-legend-item">
+              <span className="chart-legend-dot" style={{ background: STATUS_COLORS[segment.status] }} />
+              <span className="chart-legend-label">{STATUS_LABELS[segment.status]}</span>
+              <span className="chart-legend-value">{segment.count}</span>
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
+    </div>
+  )
+}
+
+function ChartSkeleton({ height = 200 }: { height?: number }) {
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <SkeletonLine width="30%" height="16px" />
+      <SkeletonLine width="100%" height={`${height}px`} />
     </div>
   )
 }
 
 export function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useFakeRequest('dashboard-stats', () => fakeFetch(DASHBOARD_STATS))
-  const { data: activity, isLoading: activityLoading } = useFakeRequest('recent-activity', () => fakeFetch(RECENT_ACTIVITY))
-  const { data: notifications, isLoading: notificationsLoading } = useFakeRequest('notifications', () => fakeFetch(NOTIFICATIONS))
-  const { data: topCustomers, isLoading: customersLoading } = useFakeRequest('top-customers', () => fakeFetch(TOP_CUSTOMERS))
+  const { data: revenue, isLoading: revenueLoading } = useFakeRequest('revenue-chart', () => fakeFetch(REVENUE_BY_DAY))
+  const { data: statusData, isLoading: statusLoading } = useFakeRequest('status-chart', () => fakeFetch(STATUS_BREAKDOWN))
 
   return (
     <div className="page">
@@ -283,55 +268,9 @@ export function Dashboard() {
       </section>
 
       <div className="dashboard-grid">
-        <section className="card">
-          <h2 className="card-title">Recent Activity</h2>
-          {activityLoading
-            ? <ActivitySkeleton />
-            : <div className="activity-feed">
-                {activity?.map((item) => <ActivityRow key={item.id} item={item} />)}
-              </div>
-          }
-        </section>
-
-        <section className="card">
-          <h2 className="card-title">Notifications</h2>
-          {notificationsLoading
-            ? <NotificationsSkeleton />
-            : <div className="notifications-list">
-                {notifications?.map((item) => <NotificationRow key={item.id} item={item} />)}
-              </div>
-          }
-        </section>
+        {revenueLoading ? <ChartSkeleton height={220} /> : revenue && <RevenueChart data={revenue} />}
+        {statusLoading ? <ChartSkeleton height={200} /> : statusData && <StatusChart data={statusData} />}
       </div>
-
-      <section className="card">
-        <h2 className="card-title">Top Customers</h2>
-        {customersLoading
-          ? <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {Array.from({ length: 5 }, (_, i) => (
-                <div key={i} style={{ display: 'flex', gap: '16px' }}>
-                  <SkeletonLine width="25%" height="14px" />
-                  <SkeletonLine width="15%" height="14px" />
-                  <SkeletonLine width="10%" height="14px" />
-                  <SkeletonLine width="15%" height="14px" />
-                </div>
-              ))}
-            </div>
-          : <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Customer</th>
-                  <th style={{ textAlign: 'right' }}>Total Spent</th>
-                  <th style={{ textAlign: 'right' }}>Orders</th>
-                  <th>Last Order</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topCustomers?.map((c) => <TopCustomerRow key={c.id} customer={c} />)}
-              </tbody>
-            </table>
-        }
-      </section>
     </div>
   )
 }
