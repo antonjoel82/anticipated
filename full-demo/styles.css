@@ -869,7 +869,7 @@ select.form-input {
 
 .settings-panel {
   position: fixed;
-  bottom: 20px;
+  bottom: 52px;
   right: 20px;
   z-index: 1000;
 }

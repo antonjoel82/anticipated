@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSharedTrajectory } from '../context/TrajectoryContext.js'
 import { useDemoStore, updateSettings } from '../lib/demoStore.js'
 import type { TrajectorySnapshot, FactorScores } from 'anticipated/core'
@@ -85,11 +85,12 @@ export function InspectorPanel() {
   const [events, setEvents] = useState<EventEntry[]>([])
   const eventIdRef = useRef(0)
 
-  const snapshots = useSyncExternalStore(
-    (cb) => engine?.subscribe(cb) ?? (() => {}),
-    () => engine?.getAllSnapshots() ?? null,
-    () => null,
-  )
+  const [, bump] = useState(0)
+  useEffect(() => {
+    if (!engine) return
+    return engine.subscribe(() => bump((n) => n + 1))
+  }, [engine])
+  const snapshots = engine?.getAllSnapshots() ?? null
 
   useEffect(() => {
     if (!engine) return

@@ -134,7 +134,7 @@ let settings: DemoSettings = {
   isShowingPredictions: true,
   isShowingRadii: false,
   isShowingRays: true,
-  isShowingInspector: false,
+  isShowingInspector: true,
   preloadCount: 0,
   predictionWindow: 150,
   smoothingFactor: 0.3,
