@@ -17,6 +17,7 @@ type UseAnticipatedReturn = {
   getSnapshot: (id: string) => TrajectorySnapshot | undefined
   getElementZones: (id: string) => ReadonlyArray<NormalizedZone> | undefined
   useSnapshot: (id: string) => TrajectorySnapshot | undefined
+  engine: TrajectoryEngine | null
 }
 
 export function useAnticipated(options?: EngineOptions): UseAnticipatedReturn {
@@ -95,7 +96,7 @@ export function useAnticipated(options?: EngineOptions): UseAnticipatedReturn {
     )
   }
 
-  return { register, trigger, getSnapshot, getElementZones, useSnapshot }
+  return { register, trigger, getSnapshot, getElementZones, useSnapshot, engine: engineRef.current }
 }
 
 function noopSubscribe(_callback: () => void): () => void {

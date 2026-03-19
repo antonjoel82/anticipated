@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useAnticipated } from './useAnticipated.js'
+import { TrajectoryEngine } from '../core/engine.js'
 
 describe('useAnticipated', () => {
   it('returns register, useSnapshot, getSnapshot, and trigger', () => {
@@ -43,6 +44,11 @@ describe('useAnticipated', () => {
       tolerance: 20,
     })
     expect(typeof ref).toBe('function')
+  })
+
+  it('exposes engine instance', () => {
+    const { result } = renderHook(() => useAnticipated())
+    expect(result.current.engine).toBeInstanceOf(TrajectoryEngine)
   })
 
   it('ref callback handles null (cleanup)', () => {

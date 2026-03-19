@@ -1,5 +1,6 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react'
 import { useAnticipated } from 'anticipated/react'
+import { AnticipatedProfiler } from 'anticipated/devtools'
 import type { RegisterConfig, TrajectorySnapshot, TriggerOptions, NormalizedZone } from 'anticipated/core'
 import type { RefCallback } from 'react'
 import { useDemoStore, type DemoSettings } from '../lib/demoStore.js'
@@ -10,6 +11,7 @@ type TrajectoryContextType = {
   getSnapshot: (id: string) => TrajectorySnapshot | undefined
   getElementZones: (id: string) => ReadonlyArray<NormalizedZone> | undefined
   trigger: (id: string, options?: TriggerOptions) => void
+  profiler: AnticipatedProfiler | null
 }
 
 const TrajectoryContext = createContext<TrajectoryContextType | null>(null)
@@ -18,16 +20,33 @@ function TrajectoryProviderInner({ settings, children }: { settings: DemoSetting
   const trajectory = useAnticipated({
     predictionWindow: settings.predictionWindow,
     smoothingFactor: settings.smoothingFactor,
-    confidenceSaturationFrames: settings.confidenceSaturationFrames,
-    confidenceDecayRate: settings.confidenceDecayRate,
     confidenceThreshold: settings.confidenceThreshold,
     minVelocityThreshold: settings.minVelocityThreshold,
     decelerationWindowFloor: settings.decelerationWindowFloor,
     decelerationDampening: settings.decelerationDampening,
+    features: settings.features,
+    factorWeights: settings.factorWeights,
   })
 
+  const profilerRef = useRef<AnticipatedProfiler | null>(null)
+  if (trajectory.engine && !profilerRef.current) {
+    profilerRef.current = new AnticipatedProfiler(trajectory.engine)
+  }
+
+  useEffect(() => {
+    return () => {
+      profilerRef.current?.destroy()
+      profilerRef.current = null
+    }
+  }, [])
+
+  const contextValue: TrajectoryContextType = {
+    ...trajectory,
+    profiler: profilerRef.current,
+  }
+
   return (
-    <TrajectoryContext.Provider value={trajectory}>
+    <TrajectoryContext.Provider value={contextValue}>
       {children}
     </TrajectoryContext.Provider>
   )
@@ -38,12 +57,12 @@ export function TrajectoryProvider({ children }: { children: ReactNode }) {
   const engineKey = [
     settings.predictionWindow,
     settings.smoothingFactor,
-    settings.confidenceSaturationFrames,
-    settings.confidenceDecayRate,
     settings.confidenceThreshold,
     settings.minVelocityThreshold,
     settings.decelerationWindowFloor,
     settings.decelerationDampening,
+    JSON.stringify(settings.features),
+    JSON.stringify(settings.factorWeights),
   ].join('-')
 
   return (
