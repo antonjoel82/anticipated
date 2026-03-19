@@ -1,1 +1,22 @@
 {"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:01:34Z","event_type":"created","id":1,"issue_id":"anticipated-26y","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:01:49Z","event_type":"created","id":2,"issue_id":"anticipated-4fa","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:01:49Z","event_type":"created","id":3,"issue_id":"anticipated-duv","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:01:49Z","event_type":"created","id":4,"issue_id":"anticipated-abf","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:01:49Z","event_type":"created","id":5,"issue_id":"anticipated-0bm","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:01:50Z","event_type":"created","id":6,"issue_id":"anticipated-zig","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:02:30Z","event_type":"created","id":7,"issue_id":"anticipated-q2t","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:02:42Z","event_type":"created","id":8,"issue_id":"anticipated-4tn","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:02:42Z","event_type":"created","id":9,"issue_id":"anticipated-0fi","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:02:42Z","event_type":"created","id":10,"issue_id":"anticipated-c1v","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:02:43Z","event_type":"created","id":11,"issue_id":"anticipated-4tl","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:02:43Z","event_type":"created","id":12,"issue_id":"anticipated-ftq","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:03:06Z","event_type":"created","id":13,"issue_id":"anticipated-iz5","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:03:16Z","event_type":"created","id":14,"issue_id":"anticipated-989","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:03:16Z","event_type":"created","id":15,"issue_id":"anticipated-vww","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:03:16Z","event_type":"created","id":16,"issue_id":"anticipated-a45","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:03:16Z","event_type":"created","id":17,"issue_id":"anticipated-4kk","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:03:37Z","event_type":"created","id":18,"issue_id":"anticipated-k97","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:03:47Z","event_type":"created","id":19,"issue_id":"anticipated-vhs","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:03:47Z","event_type":"created","id":20,"issue_id":"anticipated-9ny","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:03:48Z","event_type":"created","id":21,"issue_id":"anticipated-acz","new_value":"","old_value":""}
+{"actor":"Joel Anton","comment":null,"created_at":"2026-03-18T18:07:25Z","event_type":"claimed","id":22,"issue_id":"anticipated-4fa","new_value":"{\"assignee\":\"Joel Anton\",\"status\":\"in_progress\"}","old_value":"{\"id\":\"anticipated-4fa\",\"title\":\"Remove dead fields from EngineOptions type\",\"description\":\"Delete confidenceSaturationFrames and confidenceDecayRate from EngineOptions in src/core/types.ts (lines 104-105). Run typecheck to identify downstream breakage.\",\"status\":\"open\",\"priority\":0,\"issue_type\":\"task\",\"owner\":\"j.anton.dev@gmail.com\",\"created_at\":\"2026-03-19T01:01:50Z\",\"created_by\":\"Joel Anton\",\"updated_at\":\"2026-03-19T01:01:50Z\"}"}
